@@ -15,7 +15,9 @@ services:
     volumes:
       - redpanda:/var/lib/redpanda/data
     healthcheck:
-      test: [CMD-SHELL, 'rpk cluster health | grep -E ''Healthy:.+true''']
+      test:
+        - CMD-SHELL
+        - rpk cluster health | grep -E 'Healthy:.+true'
       interval: 5s
       timeout: 5s
       retries: 30
@@ -40,7 +42,7 @@ services:
     image: docker.redpanda.com/redpandadata/console:v3.11.0
     environment:
       KAFKA_BROKERS: redpanda:9092
-      ANALYTICS_ENABLED: "false"
+      ANALYTICS_ENABLED: 'false'
     ports:
       - 8081:8080
     depends_on:
