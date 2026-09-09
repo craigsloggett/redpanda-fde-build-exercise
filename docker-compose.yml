@@ -65,6 +65,21 @@ services:
       timeout: 5s
       retries: 20
 
+  connect-ingest:
+    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    command: [--disable-telemetry, run, /connect/ingest.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_ENRICHED: ${TOPIC_ENRICHED:-wiki.edits.enriched}
+      USER_AGENT: ${USER_AGENT:-redpanda-fde-build-exercise (github.com/craigsloggett/redpanda-fde-build-exercise)}
+      SAMPLE_PERMILLE: ${SAMPLE_PERMILLE:-50}
+    volumes:
+      - ./connect:/connect:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   redpanda:
   postgres:

@@ -1,0 +1,89 @@
+input:
+  label: wikimedia_recentchange
+  http_client:
+    url: ${WIKIMEDIA_STREAM_URL:https://stream.wikimedia.org/v2/stream/recentchange}
+    verb: GET
+    headers:
+      User-Agent: ${USER_AGENT:redpanda-fde-build-exercise (github.com/craigsloggett)}
+      Accept: text/event-stream
+    retries: 10
+    retry_period: 1s
+    max_retry_backoff: 60s
+    stream:
+      enabled: true
+      reconnect: true
+      scanner:
+        lines: {}
+
+pipeline:
+  processors:
+    - label: sse_data_lines_only
+      mapping: |
+        # Only "data:" lines carry an event; blank lines, comments and "event:"/"id:" lines are SSE framing.
+        root = if content().string().has_prefix("data: ") {
+          content().string().trim_prefix("data: ").parse_json().catch(deleted())
+        } else {
+          deleted()
+        }
+
+    - label: keep_human_article_edits
+      mapping: |
+        let is_article_edit = this.wiki == "${WIKI:enwiki}" && this.type == "edit" && this.namespace == 0
+        root = if $is_article_edit && this.bot == false && this.revision.old != null {
+          this
+        } else {
+          deleted()
+        }
+
+    - label: drop_reverts
+      mapping: |
+        # A revert is patrol work already done: no diff fetch, no model call.
+        root = if this.comment.or("").re_match("(?i)^(undid revision|undo|revert|rv\\b|rvv|restored revision)") {
+          deleted()
+        } else {
+          this
+        }
+
+    - label: tier_and_sample
+      mapping: |
+        # Logged-out editors, missing summaries and big changes always go through; the rest is sampled
+        # so the model only ever sees a fraction of a firehose it could not keep up with.
+        let delta = this.length.new - this.length.old
+        let big = $delta <= -${PRIORITY_REMOVAL_BYTES:500} || $delta >= ${PRIORITY_ADDITION_BYTES:2000}
+        let priority = this.user.has_prefix("~") || this.comment.or("") == "" || $big
+        root = if $priority {
+          this.merge({"tier": "priority"})
+        } else if random_int(max: 999) < ${SAMPLE_PERMILLE:50} {
+          this.merge({"tier": "sampled"})
+        } else {
+          deleted()
+        }
+
+    - label: project
+      mapping: |
+        # parse_json() yields floats, and a float's string form is scientific notation, hence the int64() casts.
+        let rev_new = this.revision.new.int64().string()
+        let rev_old = this.revision.old.int64().string()
+        root.rev_id = this.revision.new.int64()
+        root.rev_parent_id = this.revision.old.int64()
+        root.rc_id = this.id.int64()
+        root.title = this.title
+        root.user = this.user
+        root.user_is_temp = this.user.has_prefix("~")
+        root.minor = this.minor
+        root.comment = this.comment.or("")
+        root.bytes_old = this.length.old.int64()
+        root.bytes_new = this.length.new.int64()
+        root.bytes_delta = (this.length.new - this.length.old).int64()
+        root.event_ts = this.timestamp.ts_format("2006-01-02T15:04:05Z", "UTC")
+        root.server_url = this.server_url
+        root.diff_url = this.server_url + "/w/index.php?diff=" + $rev_new + "&oldid=" + $rev_old
+        root.tier = this.tier
+        meta rev_id = $rev_new
+
+output:
+  label: enriched_topic
+  redpanda:
+    seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
+    topic: ${TOPIC_ENRICHED:wiki.edits.enriched}
+    key: ${! meta("rev_id") }
