@@ -4,7 +4,7 @@ input:
     url: ${WIKIMEDIA_STREAM_URL:https://stream.wikimedia.org/v2/stream/recentchange}
     verb: GET
     headers:
-      User-Agent: ${USER_AGENT:redpanda-fde-build-exercise (github.com/craigsloggett)}
+      User-Agent: ${USER_AGENT:redpanda-fde-build-exercise/0.0 (github.com/craigsloggett; USER_AGENT unset)}
       Accept: text/event-stream
     retries: 10
     retry_period: 1s
@@ -19,7 +19,6 @@ pipeline:
   processors:
     - label: sse_data_lines_only
       mapping: |
-        # Only "data:" lines carry an event; blank lines, comments and "event:"/"id:" lines are SSE framing.
         root = if content().string().has_prefix("data: ") {
           content().string().trim_prefix("data: ").parse_json().catch(deleted())
         } else {
@@ -37,7 +36,6 @@ pipeline:
 
     - label: drop_reverts
       mapping: |
-        # A revert is patrol work already done: no diff fetch, no model call.
         root = if this.comment.or("").re_match("(?i)^(undid revision|undo|revert|rv\\b|rvv|restored revision)") {
           deleted()
         } else {
@@ -46,8 +44,6 @@ pipeline:
 
     - label: tier_and_sample
       mapping: |
-        # Logged-out editors, missing summaries and big changes always go through; the rest is sampled
-        # so the model only ever sees a fraction of a firehose it could not keep up with.
         let delta = this.length.new - this.length.old
         let big = $delta <= -${PRIORITY_REMOVAL_BYTES:500} || $delta >= ${PRIORITY_ADDITION_BYTES:2000}
         let priority = this.user.has_prefix("~") || this.comment.or("") == "" || $big
@@ -61,7 +57,6 @@ pipeline:
 
     - label: project
       mapping: |
-        # parse_json() yields floats, and a float's string form is scientific notation, hence the int64() casts.
         let rev_new = this.revision.new.int64().string()
         let rev_old = this.revision.old.int64().string()
         root.rev_id = this.revision.new.int64()
@@ -80,6 +75,38 @@ pipeline:
         root.diff_url = this.server_url + "/w/index.php?diff=" + $rev_new + "&oldid=" + $rev_old
         root.tier = this.tier
         meta rev_id = $rev_new
+        let compare_api = "/w/api.php?action=compare&difftype=unified&prop=diff|diffsize"
+        let compare_format = "&format=json&formatversion=2"
+        let compare_revs = "&fromrev=" + $rev_old + "&torev=" + $rev_new
+        meta compare_url = this.server_url + $compare_api + $compare_format + $compare_revs
+
+    - label: fetch_diff
+      branch:
+        request_map: root = ""
+        processors:
+          - http:
+              url: ${! meta("compare_url") }
+              verb: GET
+              headers:
+                User-Agent: ${USER_AGENT:redpanda-fde-build-exercise/0.0 (github.com/craigsloggett; USER_AGENT unset)}
+              rate_limit: wiki_api
+              timeout: 15s
+              retries: 3
+              retry_period: 1s
+              max_retry_backoff: 30s
+        result_map: |
+          let text = this.compare.body.or("").re_replace_all("<[^>]+>", "").unescape_html().trim()
+          let max = ${DIFF_MAX_CHARS:4000}
+          root.diff = if $text.length() > $max { $text.slice(0, $max) } else { $text }
+          root.diff_truncated = $text.length() > $max
+          root.diff_size = this.compare.diffsize.or(0)
+          root.enrich_error = if this.exists("error") { this.error.info.or(this.error.code) } else { deleted() }
+
+    - label: record_fetch_failure
+      catch:
+        - mapping: |
+            root = this
+            root.enrich_error = error()
 
 output:
   label: enriched_topic
@@ -87,3 +114,9 @@ output:
     seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
     topic: ${TOPIC_ENRICHED:wiki.edits.enriched}
     key: ${! meta("rev_id") }
+
+rate_limit_resources:
+  - label: wiki_api
+    local:
+      count: ${WIKI_API_REQUESTS_PER_SECOND:5}
+      interval: 1s

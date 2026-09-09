@@ -71,8 +71,11 @@ services:
     environment:
       REDPANDA_BROKERS: redpanda:9092
       TOPIC_ENRICHED: ${TOPIC_ENRICHED:-wiki.edits.enriched}
-      USER_AGENT: ${USER_AGENT:-redpanda-fde-build-exercise (github.com/craigsloggett/redpanda-fde-build-exercise)}
+      USER_AGENT: >-
+        ${USER_AGENT:-redpanda-fde-build-exercise/0.1
+        (https://github.com/craigsloggett/redpanda-fde-build-exercise) redpanda-connect/4.108.0}
       SAMPLE_PERMILLE: ${SAMPLE_PERMILLE:-50}
+      DIFF_MAX_CHARS: ${DIFF_MAX_CHARS:-4000}
     volumes:
       - ./connect:/connect:ro
     depends_on:
