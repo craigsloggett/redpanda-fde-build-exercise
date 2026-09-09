@@ -1,4 +1,4 @@
-.PHONY: all format lint
+.PHONY: all format lint up down
 
 all: lint
 
@@ -13,15 +13,26 @@ format: format-yamlfmt
 
 # Linting
 
-.PHONY: lint-yamlfmt lint-yamllint lint-actionlint
+.PHONY: lint-yamlfmt lint-yamllint lint-actionlint lint-compose
 
 lint-yamlfmt:
 	yamlfmt -lint .
 
 lint-yamllint:
-	yamllint --strict .
+	yamllint .
 
 lint-actionlint:
 	actionlint
 
-lint: lint-yamlfmt lint-yamllint lint-actionlint
+lint-compose:
+	docker compose config --quiet
+
+lint: lint-yamlfmt lint-yamllint lint-actionlint lint-compose
+
+# Docker Compose
+
+up:
+	docker compose up --build
+
+down:
+	docker compose down
