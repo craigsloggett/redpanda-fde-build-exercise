@@ -21,6 +21,7 @@
 {{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
 <p id="empty" class="muted" {{if .Rows}}hidden{{end}}>Nothing to show yet. Verdicts appear here as the reasoner works through the topic.</p>
 <table {{if not .Rows}}hidden{{end}}>
+  <colgroup><col class="when"><col class="edit"><col class="verdict"><col class="why"><col class="trace"></colgroup>
   <thead><tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr></thead>
   <tbody id="rows" data-after="{{.Cursor}}">{{template "rows" .Rows}}</tbody>
 </table>
@@ -48,9 +49,12 @@
     </td>
     <td><span class="badge {{.Route}}">{{.Route}}</span><br>{{.Label}} <span class="muted">{{pct .Confidence}}</span></td>
     <td>{{.Reason}}{{if .Evidence}}<br><code>{{.Evidence}}</code>{{if not .Grounded}} <span class="muted">(not found in diff)</span>{{end}}{{end}}</td>
-    <td class="muted">{{range .Steps}}{{.}}<br>{{end}}{{.Attempts}} calls, {{.Tokens}} tokens, {{.LatencyMS}} ms
-      {{if .Diff}}<details><summary>diff</summary><pre>{{.Diff}}</pre></details>{{end}}
-    </td>
+    <td class="muted">{{range .Steps}}{{.}}<br>{{end}}{{.Attempts}} calls, {{.Tokens}} tokens, {{.LatencyMS}} ms</td>
   </tr>
+  {{if .Diff}}
+  <tr class="diff" data-rev-id="{{.RevID}}">
+    <td colspan="5"><details><summary>diff</summary><pre>{{.Diff}}</pre></details></td>
+  </tr>
+  {{end}}
   {{end}}
 {{end}}

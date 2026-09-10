@@ -7,8 +7,12 @@ header h1 { font-size: 18px; margin: 0; }
 nav a { margin-right: 10px; }
 nav a.on { font-weight: bold; text-decoration: none; }
 main { padding: 12px 20px; }
-table { width: 100%; border-collapse: collapse; background: #fff; }
-th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #e6e8eb; }
+table { width: 100%; table-layout: fixed; border-collapse: collapse; background: #fff; }
+col.when { width: 7%; } col.edit { width: 28%; } col.verdict { width: 12%; } col.why { width: 33%; } col.trace { width: 20%; }
+th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #e6e8eb; overflow-wrap: anywhere; }
+tr:has(+ tr.diff) td { border-bottom: none; }
+tr.diff td { padding-top: 0; }
+tr.diff summary { cursor: pointer; color: #57606a; font-size: 12px; }
 th { font-weight: 600; color: #57606a; font-size: 12px; }
 tr.new td { animation: arrive 3s ease-out; }
 @keyframes arrive { from { background: #fff3c4; } to { background: transparent; } }
@@ -16,5 +20,5 @@ tr.new td { animation: arrive 3s ease-out; }
 .flagged { background: #c62828; } .review { background: #ef8f00; } .ok { background: #2e7d32; } .skipped { background: #78909c; }
 .muted { color: #57606a; font-size: 12px; }
 code { background: #f0f1f3; padding: 1px 4px; border-radius: 3px; font-size: 12px; white-space: pre-wrap; }
-details pre { max-height: 300px; overflow: auto; background: #f0f1f3; padding: 8px; font-size: 12px; }
+details pre { max-height: 300px; overflow: auto; background: #f0f1f3; padding: 8px; font-size: 12px; white-space: pre-wrap; }
 .warn { background: #fff4e5; border: 1px solid #f0c987; padding: 8px 12px; margin-bottom: 12px; }

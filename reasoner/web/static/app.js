@@ -14,12 +14,12 @@ async function poll() {
   const fresh = fragment.content.querySelectorAll("tr");
   if (fresh.length === 0) return;
   for (const tr of fresh) {
-    // A replayed verdict for a revision already shown replaces its old row, matching the upsert.
-    rows.querySelector(`tr[data-rev-id="${tr.dataset.revId}"]`)?.remove();
+    // A verdict is a row plus an optional diff row. A replayed revision replaces both, matching the upsert.
+    for (const old of rows.querySelectorAll(`tr[data-rev-id="${tr.dataset.revId}"]`)) old.remove();
     tr.classList.add("new");
   }
   rows.prepend(fragment.content);
-  after = rows.firstElementChild.dataset.reasonedAt;
+  after = rows.querySelector("tr[data-reasoned-at]").dataset.reasonedAt;
   document.getElementById("empty").hidden = true;
   rows.parentElement.hidden = false;
 }
