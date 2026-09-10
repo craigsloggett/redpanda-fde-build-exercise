@@ -5,7 +5,7 @@ GOVULNCHECK_VERSION   := v1.8.0
 GO_VERSION            := $(shell awk '/^go /{print $$2}' reasoner/go.mod)
 BUILD_DIR             := .local/bin
 
-.PHONY: all build format lint test up down
+.PHONY: all build format lint test up down reset-sink
 
 all: lint test build
 
@@ -68,3 +68,10 @@ up:
 
 down:
 	docker compose down
+
+# Rebuilds the verdicts table from the topic: with its consumer group gone the sink replays from the beginning.
+reset-sink:
+	docker compose stop connect-sink
+	docker compose exec postgres psql -U wiki -d wiki -c 'DROP TABLE IF EXISTS verdicts'
+	docker compose exec redpanda rpk group delete postgres-sink
+	docker compose start connect-sink
