@@ -8,6 +8,12 @@ input:
 
 pipeline:
   processors:
+    - label: drop_repeats
+      dedupe:
+        cache: seen_revisions
+        key: ${! json("revision.new").int64() }
+        drop_on_err: false
+
     - label: drop_reverts
       mapping: |
         root = if this.comment.or("").re_match("(?i)^(undid revision|undo|revert|rv\\b|rvv|restored revision)") {
@@ -88,6 +94,11 @@ output:
     seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
     topic: ${TOPIC_ENRICHED:wiki.edits.enriched}
     key: ${! meta("rev_id") }
+
+cache_resources:
+  - label: seen_revisions
+    memory:
+      default_ttl: 1h
 
 rate_limit_resources:
   - label: wiki_api
