@@ -72,7 +72,6 @@ up:
 down:
 	docker compose down
 
-# Rebuilds the verdicts table from the topic: with its consumer group gone the sink replays from the beginning.
 reset-sink:
 	docker compose stop connect-sink
 	docker compose exec postgres psql -U wiki -d wiki -c 'DROP TABLE IF EXISTS verdicts'
@@ -81,13 +80,11 @@ reset-sink:
 
 # Local Data
 
-# Removes the broker and database data and the build output. The model download and the images stay.
 clean:
 	docker compose down
 	docker volume rm --force $(COMPOSE_PROJECT)_redpanda $(COMPOSE_PROJECT)_postgres
 	rm -rf .local
 
-# Removes everything compose created, including the model download, to reproduce a first run.
 clean-all:
 	docker compose down --volumes --rmi all
 	rm -rf .local
