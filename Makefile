@@ -4,8 +4,9 @@ GOLANGCI_LINT_VERSION := v2.13.2
 GOVULNCHECK_VERSION   := v1.8.0
 GO_VERSION            := $(shell awk '/^go /{print $$2}' go.mod)
 BUILD_DIR             := .local/bin
+COMPOSE_PROJECT       := redpanda-fde-build-exercise
 
-.PHONY: all build format lint test up down reset-sink
+.PHONY: all build format lint test up down reset-sink clean clean-all
 
 all: lint test build
 
@@ -76,3 +77,16 @@ reset-sink:
 	docker compose exec postgres psql -U wiki -d wiki -c 'DROP TABLE IF EXISTS verdicts'
 	docker compose exec redpanda rpk group delete postgres-sink
 	docker compose start connect-sink
+
+# Local Data
+
+# Removes the broker and database data and the build output. The model download and the images stay.
+clean:
+	docker compose down
+	docker volume rm --force $(COMPOSE_PROJECT)_redpanda $(COMPOSE_PROJECT)_postgres
+	rm -rf .local
+
+# Removes everything compose created, including the model download, to reproduce a first run.
+clean-all:
+	docker compose down --volumes --rmi all
+	rm -rf .local

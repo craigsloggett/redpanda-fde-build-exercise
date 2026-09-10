@@ -1,3 +1,5 @@
+name: redpanda-fde-build-exercise
+
 services:
   redpanda:
     # yamllint disable-line rule:line-length
