@@ -30,8 +30,6 @@ func triageMessages(in Input) []Message {
 	}
 }
 
-// challengeMessages starts a fresh conversation that must argue against the first verdict before deciding.
-// The counterargument field comes first in the shape so the model writes it before committing to a label.
 func challengeMessages(in Input, first Verdict) []Message {
 	user := fmt.Sprintf(`%s
 
@@ -51,14 +49,17 @@ func describeEdit(in Input) string {
 	if in.UserIsTemp {
 		editor = "logged-out editor with a temporary account"
 	}
+
 	comment := in.Comment
 	if strings.TrimSpace(comment) == "" {
 		comment = "(none)"
 	}
+
 	diffLabel := "Diff"
 	if in.DiffTruncated {
 		diffLabel = "Diff (truncated, the edit continues beyond this)"
 	}
+
 	return fmt.Sprintf("Article: %s\nEditor: %s (%s)\nEdit summary: %s\nSize change: %+d bytes\n\n%s:\n%s",
 		in.Title, in.User, editor, comment, in.BytesDelta, diffLabel, in.Diff)
 }
