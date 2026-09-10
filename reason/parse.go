@@ -10,18 +10,15 @@ import (
 	"strings"
 )
 
-const (
-	labelConstructive = "constructive"
-	labelVandalism    = "vandalism"
-	labelSpam         = "spam"
-	labelUnsourced    = "unsourced_claim"
-	labelUnclear      = "unclear"
+// The message of a parse error goes back to the model so it can repair its reply.
+var (
+	errNoObject   = errors.New("no JSON object found in reply")
+	errLabel      = errors.New("label is unusable")
+	errConfidence = errors.New("confidence is unusable")
 )
 
-var labels = []string{labelConstructive, labelVandalism, labelSpam, labelUnsourced, labelUnclear}
-
 type modelReply struct {
-	Label      string
+	Label      Label
 	Confidence float64
 	Reason     string
 	Evidence   string
@@ -59,17 +56,17 @@ func parseReply(content string) (modelReply, error) {
 	}
 
 	if !found {
-		return modelReply{}, errors.New("no JSON object found in reply")
+		return modelReply{}, errNoObject
 	}
 
 	var labelText string
 	if err := json.Unmarshal(raw.Label, &labelText); err != nil {
-		return modelReply{}, fmt.Errorf("label is not a string: %s", truncate(string(raw.Label), 40))
+		return modelReply{}, fmt.Errorf("%w: %s is not a string", errLabel, truncate(string(raw.Label), 40))
 	}
 
 	label, ok := normalizeLabel(labelText)
 	if !ok {
-		return modelReply{}, fmt.Errorf("label %q is not one of %s", labelText, strings.Join(labels, ", "))
+		return modelReply{}, fmt.Errorf("%w: %q is not one of %v", errLabel, labelText, reviewLabels())
 	}
 
 	confidence, err := parseConfidence(raw.Confidence)
@@ -85,26 +82,26 @@ func parseReply(content string) (modelReply, error) {
 	}, nil
 }
 
-func balancedObject(s string) (string, bool) {
+func balancedObject(text string) (string, bool) {
 	depth, inString, escaped := 0, false, false
 
-	for i := 0; i < len(s); i++ {
-		c := s[i]
+	for i := range len(text) {
+		char := text[i]
 
 		if inString {
 			switch {
 			case escaped:
 				escaped = false
-			case c == '\\':
+			case char == '\\':
 				escaped = true
-			case c == '"':
+			case char == '"':
 				inString = false
 			}
 
 			continue
 		}
 
-		switch c {
+		switch char {
 		case '"':
 			inString = true
 		case '{':
@@ -112,7 +109,7 @@ func balancedObject(s string) (string, bool) {
 		case '}':
 			depth--
 			if depth == 0 {
-				return s[:i+1], true
+				return text[:i+1], true
 			}
 		}
 	}
@@ -120,33 +117,18 @@ func balancedObject(s string) (string, bool) {
 	return "", false
 }
 
-// labelSynonyms lists the words a model reaches for when it drifts off the label set.
-var labelSynonyms = map[string][]string{
-	labelConstructive: {"good", "good_faith", "benign", "legitimate", "improvement", "helpful", "ok", "fine", "valid", "productive"},
-	labelVandalism: {
-		"vandal", "vandalized", "vandalised", "damaging", "nonsense", "test", "test_edit", "blanking",
-		"disruptive", "malicious", "hoax", "trolling",
-	},
-	labelSpam: {"promotional", "promotion", "advertising", "advert", "advertisement", "promo", "self_promotion", "link_spam", "linkspam"},
-	labelUnsourced: {
-		"unsourced", "uncited", "unverified", "unreferenced", "citation_needed", "needs_citation", "unsupported_claim",
-		"original_research",
-	},
-	labelUnclear: {"uncertain", "unknown", "unsure", "ambiguous", "indeterminate", "cannot_tell"},
-}
-
 var (
 	nonAlnum    = regexp.MustCompile(`[^a-z0-9]+`)
 	hedgePrefix = regexp.MustCompile(`^(likely|probably|probable|possibly|possible|mostly|mild|minor|clear|clearly|obvious|obviously)_`)
 )
 
-func normalizeLabel(s string) (string, bool) {
-	s = nonAlnum.ReplaceAllString(strings.ToLower(s), "_")
-	s = strings.Trim(s, "_")
-	s = hedgePrefix.ReplaceAllString(s, "")
+func normalizeLabel(text string) (Label, bool) {
+	text = nonAlnum.ReplaceAllString(strings.ToLower(text), "_")
+	text = strings.Trim(text, "_")
+	text = hedgePrefix.ReplaceAllString(text, "")
 
-	for label, synonyms := range labelSynonyms {
-		if s == label || slices.Contains(synonyms, s) {
+	for _, label := range reviewLabels() {
+		if text == string(label) || slices.Contains(label.synonyms(), text) {
 			return label, true
 		}
 	}
@@ -154,34 +136,46 @@ func normalizeLabel(s string) (string, bool) {
 	return "", false
 }
 
-var confidenceWords = map[string]float64{"high": 0.9, "medium": 0.6, "moderate": 0.6, "low": 0.3}
-
 func parseConfidence(raw json.RawMessage) (float64, error) {
-	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	text := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	text = strings.ToLower(strings.TrimSpace(text))
 
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" || s == "null" {
-		return 0, errors.New("confidence is missing")
+	if text == "" || text == "null" {
+		return 0, fmt.Errorf("%w: missing", errConfidence)
 	}
 
-	if f, ok := confidenceWords[s]; ok {
-		return f, nil
+	if value, ok := confidenceWord(text); ok {
+		return value, nil
 	}
 
-	percent := strings.HasSuffix(s, "%")
+	percent := strings.HasSuffix(text, "%")
 
-	f, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(s, "%")), 64)
+	value, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(text, "%")), 64)
 	if err != nil {
-		return 0, fmt.Errorf("confidence %q is not a number", s)
+		return 0, fmt.Errorf("%w: %q is not a number", errConfidence, text)
 	}
 
-	if percent || f > 1 {
-		f /= 100
+	if percent || value > 1 {
+		value /= 100
 	}
 
-	if f < 0 || f > 1 {
-		return 0, fmt.Errorf("confidence %v is outside 0..1", f)
+	if value < 0 || value > 1 {
+		return 0, fmt.Errorf("%w: %v is outside 0..1", errConfidence, value)
 	}
 
-	return f, nil
+	return value, nil
+}
+
+// confidenceWord maps the words a model uses when it answers with a level instead of a number.
+func confidenceWord(text string) (float64, bool) {
+	switch text {
+	case "high":
+		return 0.9, true
+	case "medium", "moderate":
+		return 0.6, true
+	case "low":
+		return 0.3, true
+	default:
+		return 0, false
+	}
 }

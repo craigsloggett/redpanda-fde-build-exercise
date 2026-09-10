@@ -1,8 +1,10 @@
+// Command reason consumes enriched edits, asks the model for a verdict on each, and produces the verdicts.
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -46,7 +48,7 @@ func run() error {
 	defer cancel()
 
 	if err := client.Ping(pingCtx); err != nil {
-		return errors.New("cannot reach brokers " + strings.Join(cfg.Brokers, ",") + ": " + err.Error())
+		return fmt.Errorf("cannot reach brokers %s: %w", strings.Join(cfg.Brokers, ","), err)
 	}
 
 	reasoner := &Reasoner{
@@ -62,6 +64,7 @@ func run() error {
 		Log:            log,
 	}
 	consumer := &Consumer{Client: client, TopicOut: cfg.TopicOut, Reasoner: reasoner, Model: cfg.LLMModel, Log: log}
+
 	log.Info("reason started",
 		"llm", cfg.LLMBaseURL, "model", cfg.LLMModel,
 		"topic_in", cfg.TopicIn, "topic_out", cfg.TopicOut, "group", cfg.ConsumerGroup)

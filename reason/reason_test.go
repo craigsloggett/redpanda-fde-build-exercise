@@ -16,27 +16,30 @@ const testDiff = `@@ -12,3 +12,3 @@
 +The parish church dates from the 14th century and is haunted by aliens lol.
  It is served by a bus route.`
 
-type scriptedLLM struct {
-	replies  []string
-	err      error
-	calls    [][]Message
-	jsonMode []bool
+type modelCall struct {
+	msgs   []Message
+	format Format
 }
 
-func (s *scriptedLLM) Chat(_ context.Context, msgs []Message, jsonMode bool) (Reply, error) {
+type scriptedLLM struct {
+	replies []string
+	err     error
+	calls   []modelCall
+}
+
+func (s *scriptedLLM) Chat(_ context.Context, msgs []Message, format Format) (Reply, error) {
 	if s.err != nil {
 		return Reply{}, s.err
 	}
 
-	i := len(s.calls)
-	s.calls = append(s.calls, msgs)
-	s.jsonMode = append(s.jsonMode, jsonMode)
+	s.calls = append(s.calls, modelCall{msgs: msgs, format: format})
 
-	if i >= len(s.replies) {
-		return Reply{}, fmt.Errorf("unexpected model call number %d", i+1)
+	call := len(s.calls) - 1
+	if call >= len(s.replies) {
+		return Reply{}, fmt.Errorf("unexpected model call number %d", call+1)
 	}
 
-	return Reply{Content: s.replies[i], PromptTokens: 10, CompletionTokens: 5}, nil
+	return Reply{Content: s.replies[call], PromptTokens: 10, CompletionTokens: 5}, nil
 }
 
 func newTestReasoner(llm Chatter) *Reasoner {
@@ -52,14 +55,14 @@ func lastMessage(msgs []Message) string { return msgs[len(msgs)-1].Content }
 func TestReason(t *testing.T) {
 	tests := []struct {
 		name           string
-		in             Input
+		input          Input
 		replies        []string
-		wantLabel      string
-		wantRoute      string
+		wantLabel      Label
+		wantRoute      Route
 		wantConfidence float64
 		wantCalls      int
 		wantSteps      []string
-		check          func(t *testing.T, llm *scriptedLLM, v Verdict)
+		check          func(llm *scriptedLLM, verdict Verdict) error
 	}{
 		{
 			name:           "confident grounded verdict stands after one call",
@@ -89,11 +92,13 @@ func TestReason(t *testing.T) {
 			wantConfidence: 0.95,
 			wantCalls:      2,
 			wantSteps:      []string{"triage:parse_retry", "triage"},
-			check: func(t *testing.T, llm *scriptedLLM, _ Verdict) {
-				retry := llm.calls[1]
+			check: func(llm *scriptedLLM, _ Verdict) error {
+				retry := llm.calls[1].msgs
 				if len(retry) != 4 || retry[2].Role != "assistant" || !strings.Contains(lastMessage(retry), "could not be used") {
-					t.Errorf("retry should replay the bad reply and explain the problem, got %+v", retry)
+					return fmt.Errorf("retry should replay the bad reply and explain the problem, got %+v", retry)
 				}
+
+				return nil
 			},
 		},
 		{
@@ -115,14 +120,16 @@ func TestReason(t *testing.T) {
 			wantConfidence: 0.5,
 			wantCalls:      2,
 			wantSteps:      []string{"triage:ground_retry", "triage:ungrounded"},
-			check: func(t *testing.T, llm *scriptedLLM, v Verdict) {
-				if v.Grounded {
-					t.Error("verdict should be marked ungrounded")
+			check: func(llm *scriptedLLM, verdict Verdict) error {
+				if verdict.Grounded {
+					return errors.New("verdict should be marked ungrounded")
 				}
 
-				if !strings.Contains(lastMessage(llm.calls[1]), "does not appear verbatim") {
-					t.Errorf("retry should ask for a verbatim quote, got %q", lastMessage(llm.calls[1]))
+				if retry := lastMessage(llm.calls[1].msgs); !strings.Contains(retry, "does not appear verbatim") {
+					return fmt.Errorf("retry should ask for a verbatim quote, got %q", retry)
 				}
+
+				return nil
 			},
 		},
 		{
@@ -134,10 +141,12 @@ func TestReason(t *testing.T) {
 			wantConfidence: 0.95,
 			wantCalls:      1,
 			wantSteps:      []string{"triage"},
-			check: func(t *testing.T, _ *scriptedLLM, v Verdict) {
-				if !v.Grounded {
-					t.Error("a near-verbatim long quote should be grounded")
+			check: func(_ *scriptedLLM, verdict Verdict) error {
+				if !verdict.Grounded {
+					return errors.New("a near-verbatim long quote should be grounded")
 				}
+
+				return nil
 			},
 		},
 		{
@@ -163,11 +172,13 @@ func TestReason(t *testing.T) {
 			wantConfidence: 0.9,
 			wantCalls:      2,
 			wantSteps:      []string{"triage", "challenge"},
-			check: func(t *testing.T, llm *scriptedLLM, _ Verdict) {
-				challenge := llm.calls[1]
+			check: func(llm *scriptedLLM, _ Verdict) error {
+				challenge := llm.calls[1].msgs
 				if len(challenge) != 2 || !strings.Contains(lastMessage(challenge), `labelled this edit "unsourced_claim"`) {
-					t.Errorf("challenge should be a fresh conversation quoting the first verdict, got %+v", challenge)
+					return fmt.Errorf("challenge should be a fresh conversation quoting the first verdict, got %+v", challenge)
 				}
+
+				return nil
 			},
 		},
 		{
@@ -193,76 +204,84 @@ func TestReason(t *testing.T) {
 			wantConfidence: 0.6,
 			wantCalls:      4,
 			wantSteps:      []string{"triage", "challenge:parse_retry", "challenge:parse_retry", "challenge:parse_retry", "challenge:unusable"},
-			check: func(t *testing.T, llm *scriptedLLM, v Verdict) {
-				if v.Attempts != 4 {
-					t.Errorf("attempts = %d, want 4", v.Attempts)
+			check: func(_ *scriptedLLM, verdict Verdict) error {
+				if verdict.Attempts != 4 {
+					return fmt.Errorf("attempts = %d, want 4", verdict.Attempts)
 				}
+
+				return nil
 			},
 		},
 		{
 			name:      "no diff never calls the model",
-			in:        Input{RevID: 1, Title: "Test village", EnrichError: "http status 503"},
+			input:     Input{RevID: 1, Title: "Test village", EnrichError: "http status 503"},
 			wantLabel: labelUnreviewed,
 			wantRoute: routeSkipped,
 			wantCalls: 0,
 			wantSteps: []string{"gate:no_diff"},
-			check: func(t *testing.T, _ *scriptedLLM, v Verdict) {
-				if !strings.Contains(v.Reason, "http status 503") {
-					t.Errorf("reason should carry the fetch error, got %q", v.Reason)
+			check: func(_ *scriptedLLM, verdict Verdict) error {
+				if !strings.Contains(verdict.Reason, "http status 503") {
+					return fmt.Errorf("reason should carry the fetch error, got %q", verdict.Reason)
 				}
+
+				return nil
 			},
 		},
 		{
-			name:      "unusable output after the whole budget lands as unreviewed with json mode tried last",
+			name:      "unusable output after the whole budget lands as unreviewed with json format tried last",
 			replies:   []string{"nope", "nope", "nope"},
 			wantLabel: labelUnreviewed,
 			wantRoute: routeReview,
 			wantCalls: 3,
 			wantSteps: []string{"triage:parse_retry", "triage:parse_retry", "triage:parse_retry", "triage:unusable"},
-			check: func(t *testing.T, llm *scriptedLLM, v Verdict) {
-				if llm.jsonMode[0] || llm.jsonMode[1] || !llm.jsonMode[2] {
-					t.Errorf("json mode should be forced only on the last attempt, got %v", llm.jsonMode)
+			check: func(llm *scriptedLLM, verdict Verdict) error {
+				if llm.calls[0].format != FormatText || llm.calls[1].format != FormatText || llm.calls[2].format != FormatJSON {
+					return fmt.Errorf("json format should be forced only on the last attempt, got %+v", llm.calls)
 				}
 
-				if v.Attempts != 3 {
-					t.Errorf("attempts = %d, want 3", v.Attempts)
+				if verdict.Attempts != 3 {
+					return fmt.Errorf("attempts = %d, want 3", verdict.Attempts)
 				}
+
+				return nil
 			},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			in := tc.in
-			if in.RevID == 0 {
-				in = testInput()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := test.input
+			if input.RevID == 0 {
+				input = testInput()
 			}
 
-			llm := &scriptedLLM{replies: tc.replies}
+			llm := &scriptedLLM{replies: test.replies}
 
-			v, err := newTestReasoner(llm).Reason(context.Background(), in)
+			verdict, err := newTestReasoner(llm).Reason(t.Context(), input)
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf("Reason() unexpected error: %v", err)
 			}
 
-			if v.Label != tc.wantLabel || v.Route != tc.wantRoute {
-				t.Errorf("got label=%q route=%q, want label=%q route=%q", v.Label, v.Route, tc.wantLabel, tc.wantRoute)
+			if verdict.Label != test.wantLabel || verdict.Route != test.wantRoute {
+				t.Errorf("Reason() label = %q route = %q, want label %q route %q", verdict.Label, verdict.Route, test.wantLabel, test.wantRoute)
 			}
 
-			if tc.wantConfidence != 0 && v.Confidence != tc.wantConfidence {
-				t.Errorf("confidence = %v, want %v", v.Confidence, tc.wantConfidence)
+			if test.wantConfidence != 0 && verdict.Confidence != test.wantConfidence {
+				t.Errorf("Reason() confidence = %v, want %v", verdict.Confidence, test.wantConfidence)
 			}
 
-			if len(llm.calls) != tc.wantCalls {
-				t.Errorf("model calls = %d, want %d", len(llm.calls), tc.wantCalls)
+			if len(llm.calls) != test.wantCalls {
+				t.Errorf("Reason() made %d model calls, want %d", len(llm.calls), test.wantCalls)
 			}
 
-			if got, want := strings.Join(v.Steps, ","), strings.Join(tc.wantSteps, ","); got != want {
-				t.Errorf("steps = %s, want %s", got, want)
+			if got, want := strings.Join(verdict.Steps, ","), strings.Join(test.wantSteps, ","); got != want {
+				t.Errorf("Reason() steps = %s, want %s", got, want)
 			}
 
-			if tc.check != nil {
-				tc.check(t, llm, v)
+			if test.check != nil {
+				if err := test.check(llm, verdict); err != nil {
+					t.Error(err)
+				}
 			}
 		})
 	}
@@ -271,12 +290,12 @@ func TestReason(t *testing.T) {
 func TestReasonReturnsErrorWhenModelUnreachable(t *testing.T) {
 	llm := &scriptedLLM{err: errors.New("connection refused")}
 
-	v, err := newTestReasoner(llm).Reason(context.Background(), testInput())
+	verdict, err := newTestReasoner(llm).Reason(t.Context(), testInput())
 	if err == nil {
-		t.Fatalf("expected an error so the record is retried, got verdict %+v", v)
+		t.Fatalf("Reason() expected an error so the record is retried, got verdict %+v", verdict)
 	}
 
-	if v.Label != "" {
-		t.Errorf("no verdict should be produced on a transport failure, got %+v", v)
+	if verdict.Label != "" {
+		t.Errorf("Reason() should produce no verdict on a transport failure, got %+v", verdict)
 	}
 }

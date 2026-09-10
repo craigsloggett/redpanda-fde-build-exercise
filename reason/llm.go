@@ -12,8 +12,18 @@ import (
 )
 
 type Chatter interface {
-	Chat(ctx context.Context, msgs []Message, jsonMode bool) (Reply, error)
+	Chat(ctx context.Context, msgs []Message, format Format) (Reply, error)
 }
+
+// Format is the response_format the server is asked to hold the model to.
+type Format string
+
+const (
+	// FormatText leaves the shape of the reply to the prompt.
+	FormatText Format = ""
+	// FormatJSON has the server reject any reply that is not a JSON object.
+	FormatJSON Format = "json_object"
+)
 
 type Message struct {
 	Role    string `json:"role"`
@@ -44,7 +54,7 @@ type chatRequest struct {
 }
 
 type responseFormat struct {
-	Type string `json:"type"`
+	Type Format `json:"type"`
 }
 
 type chatResponse struct {
@@ -69,20 +79,25 @@ type chatResponse struct {
 // Bound the number of tokens the model uses which is large enough for a thinking model to think and still answer.
 const maxCompletionTokens = 1200
 
-func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (Reply, error) {
+var (
+	errLLMStatus = errors.New("llm request rejected")
+	errLLMReply  = errors.New("llm reply unusable")
+)
+
+func (c *ChatClient) Chat(ctx context.Context, msgs []Message, format Format) (Reply, error) {
 	req := chatRequest{Model: c.Model, Messages: msgs, MaxTokens: maxCompletionTokens}
-	if jsonMode {
-		req.ResponseFormat = &responseFormat{Type: "json_object"}
+	if format != FormatText {
+		req.ResponseFormat = &responseFormat{Type: format}
 	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return Reply{}, err
+		return Reply{}, fmt.Errorf("encode request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return Reply{}, err
+		return Reply{}, fmt.Errorf("build request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -96,6 +111,7 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 		return Reply{}, fmt.Errorf("llm request: %w", err)
 	}
 
+	// A Close error after the body was read to its limit carries nothing worth handling.
 	defer func() { _ = res.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
@@ -104,7 +120,7 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	}
 
 	if res.StatusCode/100 != 2 {
-		return Reply{}, fmt.Errorf("llm status %d: %s", res.StatusCode, truncate(string(raw), 300))
+		return Reply{}, fmt.Errorf("%w: status %d: %s", errLLMStatus, res.StatusCode, truncate(string(raw), 300))
 	}
 
 	var parsed chatResponse
@@ -113,16 +129,16 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	}
 
 	if parsed.Error != nil {
-		return Reply{}, fmt.Errorf("llm error: %s", parsed.Error.Message)
+		return Reply{}, fmt.Errorf("%w: %s", errLLMReply, parsed.Error.Message)
 	}
 
 	if len(parsed.Choices) == 0 {
-		return Reply{}, errors.New("llm response has no choices")
+		return Reply{}, fmt.Errorf("%w: no choices", errLLMReply)
 	}
 
 	choice := parsed.Choices[0]
-	content := choice.Message.Content
 
+	content := choice.Message.Content
 	if strings.TrimSpace(content) == "" {
 		content = choice.Message.Reasoning
 	}
@@ -135,10 +151,10 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	}, nil
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+func truncate(text string, limit int) string {
+	if len(text) <= limit {
+		return text
 	}
 
-	return s[:n] + "..."
+	return text[:limit] + "..."
 }

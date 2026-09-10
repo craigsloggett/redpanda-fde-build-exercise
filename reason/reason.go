@@ -7,13 +7,14 @@ import (
 	"strings"
 )
 
-const labelUnreviewed = "unreviewed"
+// Route is where a verdict sends the edit.
+type Route string
 
 const (
-	routeFlagged = "flagged"
-	routeReview  = "review"
-	routeOK      = "ok"
-	routeSkipped = "skipped"
+	routeFlagged Route = "flagged"
+	routeReview  Route = "review"
+	routeOK      Route = "ok"
+	routeSkipped Route = "skipped"
 )
 
 type Input struct {
@@ -39,12 +40,12 @@ type Input struct {
 }
 
 type Verdict struct {
-	Label      string   `json:"label"`
+	Label      Label    `json:"label"`
 	Confidence float64  `json:"confidence"`
 	Reason     string   `json:"reason"`
 	Evidence   string   `json:"evidence"`
 	Grounded   bool     `json:"grounded"`
-	Route      string   `json:"route"`
+	Route      Route    `json:"route"`
 	Steps      []string `json:"steps"`
 	Attempts   int      `json:"attempts"`
 	Tokens     int      `json:"tokens"`
@@ -58,53 +59,52 @@ type Reasoner struct {
 	Log            *slog.Logger
 }
 
-var damagingLabels = map[string]bool{labelVandalism: true, labelSpam: true, labelUnsourced: true}
-
-func (r *Reasoner) Reason(ctx context.Context, in Input) (Verdict, error) {
-	if strings.TrimSpace(in.Diff) == "" {
+func (r *Reasoner) Reason(ctx context.Context, input Input) (Verdict, error) {
+	if strings.TrimSpace(input.Diff) == "" {
 		reason := "no diff to review"
-		if in.EnrichError != "" {
-			reason += ": " + in.EnrichError
+		if input.EnrichError != "" {
+			reason += ": " + input.EnrichError
 		}
 
 		return Verdict{Label: labelUnreviewed, Route: routeSkipped, Reason: reason, Steps: []string{"gate:no_diff"}}, nil
 	}
 
-	v, err := r.assess(ctx, in, triageMessages(in), "triage")
+	verdict, err := r.assess(ctx, input, triageMessages(input), "triage")
 	if err != nil {
 		return Verdict{}, err
 	}
 
-	if v.Label == labelUnreviewed {
-		v.Route = routeReview
-		return v, nil
+	if verdict.Label == labelUnreviewed {
+		verdict.Route = routeReview
+
+		return verdict, nil
 	}
 
-	if v.Grounded && (v.Label == labelUnclear || v.Confidence < r.HighConfidence) {
-		second, err := r.assess(ctx, in, challengeMessages(in, v), "challenge")
+	if verdict.Grounded && (verdict.Label == labelUnclear || verdict.Confidence < r.HighConfidence) {
+		second, err := r.assess(ctx, input, challengeMessages(input, verdict), "challenge")
 		if err != nil {
 			return Verdict{}, err
 		}
 
-		second.Steps = append(v.Steps, second.Steps...)
-		second.Attempts += v.Attempts
-		second.Tokens += v.Tokens
+		second.Steps = append(verdict.Steps, second.Steps...)
+		second.Attempts += verdict.Attempts
+		second.Tokens += verdict.Tokens
 
 		if second.Label != labelUnreviewed {
-			v = second
+			verdict = second
 		} else {
-			v.Steps = second.Steps
-			v.Attempts = second.Attempts
-			v.Tokens = second.Tokens
+			verdict.Steps = second.Steps
+			verdict.Attempts = second.Attempts
+			verdict.Tokens = second.Tokens
 		}
 	}
 
-	v.Route = r.route(v)
+	verdict.Route = r.route(verdict)
 
-	return v, nil
+	return verdict, nil
 }
 
-func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage string) (Verdict, error) {
+func (r *Reasoner) assess(ctx context.Context, input Input, msgs []Message, stage string) (Verdict, error) {
 	var (
 		steps       []string
 		attempts    int
@@ -112,11 +112,16 @@ func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage s
 		lastProblem string
 		groundRetry bool
 	)
+
 	for attempts < r.MaxAttempts {
 		attempts++
-		jsonMode := attempts == r.MaxAttempts
 
-		reply, err := r.LLM.Chat(ctx, msgs, jsonMode)
+		format := FormatText
+		if attempts == r.MaxAttempts {
+			format = FormatJSON
+		}
+
+		reply, err := r.LLM.Chat(ctx, msgs, format)
 		if err != nil {
 			return Verdict{}, fmt.Errorf("%s attempt %d: %w", stage, attempts, err)
 		}
@@ -125,43 +130,41 @@ func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage s
 
 		parsed, err := parseReply(reply.Content)
 		if err != nil {
-			lastProblem = err.Error()
-
 			steps = append(steps, stage+":parse_retry")
-			r.Log.Debug("unparseable reply", "stage", stage, "attempt", attempts, "err", err, "finish", reply.FinishReason, "reply", truncate(reply.Content, 200))
+			lastProblem = err.Error()
 			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: fmt.Sprintf(repairPrompt, err)})
+			r.Log.Debug("unparseable reply", "stage", stage, "attempt", attempts, "err", err, "finish", reply.FinishReason, "reply", truncate(reply.Content, 200))
 
 			continue
 		}
 
-		v := Verdict{
+		verdict := Verdict{
 			Label:      parsed.Label,
 			Confidence: parsed.Confidence,
 			Reason:     parsed.Reason,
 			Evidence:   parsed.Evidence,
-			Grounded:   grounded(parsed.Evidence, in.Diff),
+			Grounded:   grounded(parsed.Evidence, input.Diff),
 			Steps:      append(steps, stage),
 			Attempts:   attempts,
 			Tokens:     tokens,
 		}
 
-		if v.Grounded {
-			return v, nil
+		if verdict.Grounded {
+			return verdict, nil
 		}
 
 		if !groundRetry && attempts < r.MaxAttempts {
-			groundRetry = true
-
 			steps = append(steps, stage+":ground_retry")
 			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: groundPrompt})
+			groundRetry = true
 
 			continue
 		}
 
-		v.Steps = append(steps, stage+":ungrounded")
-		v.Confidence = min(v.Confidence, r.LowConfidence)
+		verdict.Steps = append(steps, stage+":ungrounded")
+		verdict.Confidence = min(verdict.Confidence, r.LowConfidence)
 
-		return v, nil
+		return verdict, nil
 	}
 
 	return Verdict{
@@ -180,28 +183,27 @@ const (
 )
 
 func grounded(evidence, diff string) bool {
-	e, d := collapseSpace(evidence), collapseSpace(diff)
-
-	if len(e) < minEvidenceLen {
+	quote, text := collapseSpace(evidence), collapseSpace(diff)
+	if len(quote) < minEvidenceLen {
 		return false
 	}
 
-	if strings.Contains(d, e) {
+	if strings.Contains(text, quote) {
 		return true
 	}
 
-	run := longestCommonRun(e, d)
+	run := longestCommonRun(quote, text)
 
-	return run >= minPartialRun && run*100 >= len(e)*minPartialPercent
+	return run >= minPartialRun && run*100 >= len(quote)*minPartialPercent
 }
 
-func longestCommonRun(a, b string) int {
-	prev, cur := make([]int, len(b)+1), make([]int, len(b)+1)
+func longestCommonRun(left, right string) int {
+	prev, cur := make([]int, len(right)+1), make([]int, len(right)+1)
 	best := 0
 
-	for i := 1; i <= len(a); i++ {
-		for j := 1; j <= len(b); j++ {
-			if a[i-1] == b[j-1] {
+	for i := 1; i <= len(left); i++ {
+		for j := 1; j <= len(right); j++ {
+			if left[i-1] == right[j-1] {
 				cur[j] = prev[j-1] + 1
 				best = max(best, cur[j])
 			} else {
@@ -215,17 +217,17 @@ func longestCommonRun(a, b string) int {
 	return best
 }
 
-func collapseSpace(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+func collapseSpace(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }
 
-func (r *Reasoner) route(v Verdict) string {
+func (r *Reasoner) route(verdict Verdict) Route {
 	switch {
-	case !v.Grounded:
+	case !verdict.Grounded:
 		return routeReview
-	case damagingLabels[v.Label] && v.Confidence >= r.HighConfidence:
+	case verdict.Label.damaging() && verdict.Confidence >= r.HighConfidence:
 		return routeFlagged
-	case v.Label == labelConstructive && v.Confidence >= r.LowConfidence:
+	case verdict.Label == labelConstructive && verdict.Confidence >= r.LowConfidence:
 		return routeOK
 	default:
 		return routeReview

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	"errors"
 	"testing"
 )
 
@@ -12,7 +12,7 @@ func TestParseReply(t *testing.T) {
 		name    string
 		content string
 		want    modelReply
-		wantErr string
+		wantErr error
 	}{
 		{
 			name:    "thinking block before the object",
@@ -44,30 +44,30 @@ func TestParseReply(t *testing.T) {
 			content: `{"label": "good faith", "confidence": 0.8, "reason": "", "evidence": ""}`,
 			want:    modelReply{Label: labelConstructive, Confidence: 0.8},
 		},
-		{name: "missing confidence", content: `{"label": "spam", "reason": "x", "evidence": "y"}`, wantErr: "confidence is missing"},
-		{name: "unknown label", content: `{"label": "meh", "confidence": 0.5}`, wantErr: "not one of"},
-		{name: "no object at all", content: "vandalism, 0.9", wantErr: "no JSON object"},
-		{name: "unterminated object", content: `{"label": "spam", "confidence": 0.9`, wantErr: "no JSON object"},
+		{name: "missing confidence", content: `{"label": "spam", "reason": "x", "evidence": "y"}`, wantErr: errConfidence},
+		{name: "unknown label", content: `{"label": "meh", "confidence": 0.5}`, wantErr: errLabel},
+		{name: "no object at all", content: "vandalism, 0.9", wantErr: errNoObject},
+		{name: "unterminated object", content: `{"label": "spam", "confidence": 0.9`, wantErr: errNoObject},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseReply(tc.content)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseReply(test.content)
 
-			if tc.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("err = %v, want it to contain %q", err, tc.wantErr)
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("parseReply(%q) error = %v, want %v", test.content, err, test.wantErr)
 				}
 
 				return
 			}
 
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf("parseReply(%q) unexpected error: %v", test.content, err)
 			}
 
-			if got != tc.want {
-				t.Errorf("got %+v, want %+v", got, tc.want)
+			if got != test.want {
+				t.Errorf("parseReply(%q) = %+v, want %+v", test.content, got, test.want)
 			}
 		})
 	}

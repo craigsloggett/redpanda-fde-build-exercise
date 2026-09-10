@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -25,8 +26,10 @@ type Config struct {
 	LowConfidence  float64
 }
 
+var errConfig = errors.New("invalid config")
+
 func loadConfig() (Config, error) {
-	c := Config{
+	cfg := Config{
 		Brokers:       strings.Split(envOr("REDPANDA_BROKERS", "redpanda:9092"), ","),
 		TopicIn:       envOr("TOPIC_IN", "wiki.edits.enriched"),
 		TopicOut:      envOr("TOPIC_OUT", "wiki.edits.verdicts"),
@@ -37,32 +40,33 @@ func loadConfig() (Config, error) {
 	}
 
 	var err error
+
 	// A cold Ollama loads the model on the first request, which can take minutes on CPU.
-	if c.LLMTimeout, err = envDuration("LLM_TIMEOUT", 5*time.Minute); err != nil {
-		return c, err
+	if cfg.LLMTimeout, err = envDuration("LLM_TIMEOUT", 5*time.Minute); err != nil {
+		return cfg, err
 	}
 
-	if c.MaxAttempts, err = envInt("MAX_ATTEMPTS", 3); err != nil {
-		return c, err
+	if cfg.MaxAttempts, err = envInt("MAX_ATTEMPTS", 3); err != nil {
+		return cfg, err
 	}
 
-	if c.HighConfidence, err = envFloat("HIGH_CONFIDENCE", 0.8); err != nil {
-		return c, err
+	if cfg.HighConfidence, err = envFloat("HIGH_CONFIDENCE", 0.8); err != nil {
+		return cfg, err
 	}
 
-	if c.LowConfidence, err = envFloat("LOW_CONFIDENCE", 0.5); err != nil {
-		return c, err
+	if cfg.LowConfidence, err = envFloat("LOW_CONFIDENCE", 0.5); err != nil {
+		return cfg, err
 	}
 
-	if c.MaxAttempts < 1 {
-		return c, fmt.Errorf("MAX_ATTEMPTS must be at least 1, got %d", c.MaxAttempts)
+	if cfg.MaxAttempts < 1 {
+		return cfg, fmt.Errorf("%w: MAX_ATTEMPTS must be at least 1, got %d", errConfig, cfg.MaxAttempts)
 	}
 
-	if !(0 <= c.LowConfidence && c.LowConfidence < c.HighConfidence && c.HighConfidence <= 1) {
-		return c, fmt.Errorf("need 0 <= LOW_CONFIDENCE < HIGH_CONFIDENCE <= 1, got %v and %v", c.LowConfidence, c.HighConfidence)
+	if !(0 <= cfg.LowConfidence && cfg.LowConfidence < cfg.HighConfidence && cfg.HighConfidence <= 1) {
+		return cfg, fmt.Errorf("%w: need 0 <= LOW_CONFIDENCE < HIGH_CONFIDENCE <= 1, got %v and %v", errConfig, cfg.LowConfidence, cfg.HighConfidence)
 	}
 
-	return c, nil
+	return cfg, nil
 }
 
 func envOr(key, def string) string {
