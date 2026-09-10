@@ -65,6 +65,23 @@ services:
       timeout: 5s
       retries: 20
 
+  connect-sink:
+    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    command: [--disable-telemetry, run, /connect/sink.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_VERDICTS: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
+    volumes:
+      - ./connect:/connect:ro
+      - ./postgres:/schema:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:0.33.3
     environment:
