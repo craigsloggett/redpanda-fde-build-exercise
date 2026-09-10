@@ -85,7 +85,10 @@ func (r *Reasoner) Reason(ctx context.Context, input Input) (Verdict, error) {
 			return Verdict{}, err
 		}
 
-		second.Steps = append(verdict.Steps, second.Steps...)
+		second.Steps = append(
+			verdict.Steps,
+			second.Steps...,
+		)
 		second.Attempts += verdict.Attempts
 		second.Tokens += verdict.Tokens
 
@@ -129,7 +132,10 @@ func (r *Reasoner) assess(ctx context.Context, input Input, msgs []Message, stag
 
 		parsed, err := parseReply(reply.Content)
 		if err != nil {
-			steps = append(steps, stage+":parse_retry")
+			steps = append(
+				steps,
+				stage+":parse_retry",
+			)
 			lastProblem = err.Error()
 			msgs = append(
 				msgs,
@@ -182,7 +188,8 @@ func (r *Reasoner) assess(ctx context.Context, input Input, msgs []Message, stag
 				},
 				Message{
 					Role:    "user",
-					Content: groundPrompt},
+					Content: groundPrompt,
+				},
 			)
 			groundRetry = true
 

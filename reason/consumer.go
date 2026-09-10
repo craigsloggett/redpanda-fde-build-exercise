@@ -163,7 +163,11 @@ func retryUntilReachable[T any](ctx context.Context, log *slog.Logger, what stri
 			return result, fmt.Errorf("%s: %w", what, ctx.Err())
 		}
 
-		log.Warn(what+" unavailable, retrying", "err", err, "backoff", backoff)
+		log.Warn(
+			what+" unavailable, retrying",
+			"err", err,
+			"backoff", backoff,
+		)
 
 		select {
 		case <-ctx.Done():

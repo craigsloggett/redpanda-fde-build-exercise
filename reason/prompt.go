@@ -25,8 +25,14 @@ const groundPrompt = `The "evidence" you quoted does not appear verbatim in the 
 
 func triageMessages(input Input) []Message {
 	return []Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: describeEdit(input)},
+		{
+			Role:    "system",
+			Content: systemPrompt,
+		},
+		{
+			Role:    "user",
+			Content: describeEdit(input),
+		},
 	}
 }
 
@@ -40,8 +46,14 @@ Make the strongest case that this label is wrong, then decide for yourself. Repl
 		describeEdit(input), first.Label, first.Confidence, first.Reason)
 
 	return []Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: user},
+		{
+			Role:    "system",
+			Content: systemPrompt,
+		},
+		{
+			Role:    "user",
+			Content: user,
+		},
 	}
 }
 

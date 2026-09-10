@@ -12,7 +12,13 @@ const (
 )
 
 func reviewLabels() []Label {
-	return []Label{labelConstructive, labelVandalism, labelSpam, labelUnsourced, labelUnclear}
+	return []Label{
+		labelConstructive,
+		labelVandalism,
+		labelSpam,
+		labelUnsourced,
+		labelUnclear,
+	}
 }
 
 func (l Label) damaging() bool {

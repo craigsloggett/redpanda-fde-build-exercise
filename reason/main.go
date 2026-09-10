@@ -64,9 +64,14 @@ func run() error {
 	}
 	consumer := &Consumer{Client: client, TopicOut: cfg.TopicOut, Reasoner: reasoner, Model: cfg.LLMModel, Log: log}
 
-	log.Info("reason started",
-		"llm", cfg.LLMBaseURL, "model", cfg.LLMModel,
-		"topic_in", cfg.TopicIn, "topic_out", cfg.TopicOut, "group", cfg.ConsumerGroup)
+	log.Info(
+		"reason started",
+		"llm", cfg.LLMBaseURL,
+		"model", cfg.LLMModel,
+		"topic_in", cfg.TopicIn,
+		"topic_out", cfg.TopicOut,
+		"group", cfg.ConsumerGroup,
+	)
 
 	if err := consumer.Run(ctx); !errors.Is(err, context.Canceled) {
 		return err

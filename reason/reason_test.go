@@ -32,7 +32,13 @@ func (s *scriptedLLM) Chat(_ context.Context, msgs []Message, format Format) (Re
 		return Reply{}, s.err
 	}
 
-	s.calls = append(s.calls, modelCall{msgs: msgs, format: format})
+	s.calls = append(
+		s.calls,
+		modelCall{
+			msgs:   msgs,
+			format: format,
+		},
+	)
 
 	call := len(s.calls) - 1
 	if call >= len(s.replies) {
