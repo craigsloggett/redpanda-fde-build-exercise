@@ -22,6 +22,8 @@ pipeline:
           this
         }
 
+    # Multiplying by an odd constant coprime with 1000 permutes the residues, so consecutive ids scatter
+    # across the sample instead of the first fifty of every thousand being taken in a burst.
     - label: tier_and_sample
       mapping: |
         let delta = this.length.new - this.length.old
@@ -29,7 +31,7 @@ pipeline:
         let priority = this.user.has_prefix("~") || this.comment.or("") == "" || $big
         root = if $priority {
           this.merge({"tier": "priority"})
-        } else if this.revision.new.int64() % 1000 < ${SAMPLE_PERMILLE:50} {
+        } else if (this.revision.new.int64() * 761) % 1000 < ${SAMPLE_PERMILLE:50} {
           this.merge({"tier": "sampled"})
         } else {
           deleted()
