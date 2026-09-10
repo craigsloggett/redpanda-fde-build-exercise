@@ -30,7 +30,9 @@ services:
       - |
         set -e
         rpk cluster config set enable_metrics_reporter false -X admin.hosts=redpanda:9644
-        for topic in ${TOPIC_ENRICHED:-wiki.edits.enriched} ${TOPIC_VERDICTS:-wiki.edits.verdicts}; do
+        topics="${TOPIC_RAW:-wiki.edits.raw} ${TOPIC_ENRICHED:-wiki.edits.enriched}"
+        topics="$$topics ${TOPIC_VERDICTS:-wiki.edits.verdicts}"
+        for topic in $$topics; do
           rpk topic describe "$$topic" -X brokers=redpanda:9092 >/dev/null 2>&1 \
             || rpk topic create "$$topic" -X brokers=redpanda:9092
         done
@@ -110,11 +112,28 @@ services:
       ollama:
         condition: service_healthy
 
-  connect-ingest:
+  ingest:
     image: docker.redpanda.com/redpandadata/connect:4.108.0
-    command: [--disable-telemetry, run, /connect/ingest.yaml]
+    command: [--disable-telemetry, run, /ingest/ingest.yaml]
     environment:
       REDPANDA_BROKERS: redpanda:9092
+      TOPIC_RAW: ${TOPIC_RAW:-wiki.edits.raw}
+      USER_AGENT: >-
+        ${USER_AGENT:-redpanda-fde-build-exercise/0.1
+        (https://github.com/craigsloggett/redpanda-fde-build-exercise) redpanda-connect/4.108.0}
+    volumes:
+      - ./ingest:/ingest:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  transform:
+    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    command: [--disable-telemetry, run, /transform/transform.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_RAW: ${TOPIC_RAW:-wiki.edits.raw}
       TOPIC_ENRICHED: ${TOPIC_ENRICHED:-wiki.edits.enriched}
       USER_AGENT: >-
         ${USER_AGENT:-redpanda-fde-build-exercise/0.1
@@ -122,7 +141,7 @@ services:
       SAMPLE_PERMILLE: ${SAMPLE_PERMILLE:-50}
       DIFF_MAX_CHARS: ${DIFF_MAX_CHARS:-4000}
     volumes:
-      - ./connect:/connect:ro
+      - ./transform:/transform:ro
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
