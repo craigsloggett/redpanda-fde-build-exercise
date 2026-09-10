@@ -33,6 +33,9 @@ linters:
     revive:
       enable-default-rules: true
       rules:
+        # Go code here carries no comments, and this is the one doc comment revive checks in a main package.
+        - name: package-comments
+          disabled: true
         - name: comment-spacings
         - name: confusing-naming
         - name: deep-exit

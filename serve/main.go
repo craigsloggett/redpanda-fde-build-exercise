@@ -1,4 +1,3 @@
-// Command serve reads the verdicts the sink stored in Postgres and serves the review page and its JSON API.
 package main
 
 import (

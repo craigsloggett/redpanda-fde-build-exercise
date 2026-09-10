@@ -18,12 +18,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The page, its stylesheet, and its script live under web/ and ship inside the binary.
-//
 //go:embed web
 var webFS embed.FS
 
-// Row is one verdict as the Connect sink stored it.
 type Row struct {
 	RevID         int64     `db:"rev_id" json:"rev_id"`
 	RevParentID   int64     `db:"rev_parent_id" json:"rev_parent_id"`
@@ -272,7 +269,6 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		// Before the sink has connected once the table does not exist yet; the page should say so, not 500.
 		s.Log.Warn("query failed", "err", err)
 		view.Error = err.Error()
 	}
@@ -288,8 +284,6 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// The fragments render the same templates the page does, so a row looks the same whether it arrived with
-// the page or was inserted later.
 func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.stats(r.Context())
 	if err != nil {
