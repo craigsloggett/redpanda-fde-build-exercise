@@ -26,6 +26,7 @@ func run() error {
 	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
 		level = slog.LevelDebug
 	}
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
 
@@ -46,11 +47,13 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	errs := make(chan error, 1)
+
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
 	}()
+
 	log.Info("serve started", "http", cfg.HTTPAddr)
 
 	select {
@@ -59,7 +62,9 @@ func run() error {
 	case err := <-errs:
 		return err
 	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	return srv.Shutdown(shutdownCtx)
 }

@@ -119,6 +119,7 @@ func TestReason(t *testing.T) {
 				if v.Grounded {
 					t.Error("verdict should be marked ungrounded")
 				}
+
 				if !strings.Contains(lastMessage(llm.calls[1]), "does not appear verbatim") {
 					t.Errorf("retry should ask for a verbatim quote, got %q", lastMessage(llm.calls[1]))
 				}

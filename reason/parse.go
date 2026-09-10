@@ -38,7 +38,9 @@ var thinkBlock = regexp.MustCompile(`(?s)<think>.*?</think>`)
 
 func parseReply(content string) (modelReply, error) {
 	content = thinkBlock.ReplaceAllString(content, "")
+
 	var raw rawReply
+
 	found := false
 
 	for start := strings.IndexByte(content, '{'); start >= 0; {
@@ -88,6 +90,7 @@ func balancedObject(s string) (string, bool) {
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
+
 		if inString {
 			switch {
 			case escaped:
@@ -97,6 +100,7 @@ func balancedObject(s string) (string, bool) {
 			case c == '"':
 				inString = false
 			}
+
 			continue
 		}
 
@@ -154,6 +158,7 @@ var confidenceWords = map[string]float64{"high": 0.9, "medium": 0.6, "moderate":
 
 func parseConfidence(raw json.RawMessage) (float64, error) {
 	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" || s == "null" {
 		return 0, errors.New("confidence is missing")

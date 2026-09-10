@@ -41,12 +41,15 @@ func loadConfig() (Config, error) {
 	if c.LLMTimeout, err = envDuration("LLM_TIMEOUT", 5*time.Minute); err != nil {
 		return c, err
 	}
+
 	if c.MaxAttempts, err = envInt("MAX_ATTEMPTS", 3); err != nil {
 		return c, err
 	}
+
 	if c.HighConfidence, err = envFloat("HIGH_CONFIDENCE", 0.8); err != nil {
 		return c, err
 	}
+
 	if c.LowConfidence, err = envFloat("LOW_CONFIDENCE", 0.5); err != nil {
 		return c, err
 	}
@@ -54,9 +57,11 @@ func loadConfig() (Config, error) {
 	if c.MaxAttempts < 1 {
 		return c, fmt.Errorf("MAX_ATTEMPTS must be at least 1, got %d", c.MaxAttempts)
 	}
+
 	if !(0 <= c.LowConfidence && c.LowConfidence < c.HighConfidence && c.HighConfidence <= 1) {
 		return c, fmt.Errorf("need 0 <= LOW_CONFIDENCE < HIGH_CONFIDENCE <= 1, got %v and %v", c.LowConfidence, c.HighConfidence)
 	}
+
 	return c, nil
 }
 
@@ -64,6 +69,7 @@ func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+
 	return def
 }
 
@@ -72,10 +78,12 @@ func envInt(key string, def int) (int, error) {
 	if v == "" {
 		return def, nil
 	}
+
 	n, err := strconv.Atoi(v)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
+
 	return n, nil
 }
 
@@ -84,10 +92,12 @@ func envFloat(key string, def float64) (float64, error) {
 	if v == "" {
 		return def, nil
 	}
+
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
+
 	return f, nil
 }
 
@@ -96,9 +106,11 @@ func envDuration(key string, def time.Duration) (time.Duration, error) {
 	if v == "" {
 		return def, nil
 	}
+
 	d, err := time.ParseDuration(v)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
+
 	return d, nil
 }

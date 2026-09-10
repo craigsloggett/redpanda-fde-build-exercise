@@ -38,6 +38,7 @@ A first review labelled this edit %q with confidence %.2f because: %s
 Make the strongest case that this label is wrong, then decide for yourself. Reply with only a JSON object in this shape and nothing else:
 {"counterargument": "<one or two sentences>", "label": "<one label>", "confidence": <number from 0 to 1>, "reason": "<one sentence>", "evidence": "<short quote copied exactly from a changed line of the diff>"}`,
 		describeEdit(in), first.Label, first.Confidence, first.Reason)
+
 	return []Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: user},

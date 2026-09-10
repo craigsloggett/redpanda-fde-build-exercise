@@ -100,6 +100,7 @@ func (r *Reasoner) Reason(ctx context.Context, in Input) (Verdict, error) {
 	}
 
 	v.Route = r.route(v)
+
 	return v, nil
 }
 
@@ -114,6 +115,7 @@ func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage s
 	for attempts < r.MaxAttempts {
 		attempts++
 		jsonMode := attempts == r.MaxAttempts
+
 		reply, err := r.LLM.Chat(ctx, msgs, jsonMode)
 		if err != nil {
 			return Verdict{}, fmt.Errorf("%s attempt %d: %w", stage, attempts, err)
@@ -124,9 +126,11 @@ func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage s
 		parsed, err := parseReply(reply.Content)
 		if err != nil {
 			lastProblem = err.Error()
+
 			steps = append(steps, stage+":parse_retry")
 			r.Log.Debug("unparseable reply", "stage", stage, "attempt", attempts, "err", err, "finish", reply.FinishReason, "reply", truncate(reply.Content, 200))
 			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: fmt.Sprintf(repairPrompt, err)})
+
 			continue
 		}
 
@@ -147,13 +151,16 @@ func (r *Reasoner) assess(ctx context.Context, in Input, msgs []Message, stage s
 
 		if !groundRetry && attempts < r.MaxAttempts {
 			groundRetry = true
+
 			steps = append(steps, stage+":ground_retry")
 			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: groundPrompt})
+
 			continue
 		}
 
 		v.Steps = append(steps, stage+":ungrounded")
 		v.Confidence = min(v.Confidence, r.LowConfidence)
+
 		return v, nil
 	}
 
@@ -201,6 +208,7 @@ func longestCommonRun(a, b string) int {
 				cur[j] = 0
 			}
 		}
+
 		prev, cur = cur, prev
 	}
 

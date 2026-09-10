@@ -24,6 +24,7 @@ func run() error {
 	if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
 		level = slog.LevelDebug
 	}
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
 
@@ -40,8 +41,10 @@ func run() error {
 		return err
 	}
 	defer client.Close()
+
 	pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
 	if err := client.Ping(pingCtx); err != nil {
 		return errors.New("cannot reach brokers " + strings.Join(cfg.Brokers, ",") + ": " + err.Error())
 	}
@@ -66,5 +69,6 @@ func run() error {
 	if err := consumer.Run(ctx); !errors.Is(err, context.Canceled) {
 		return err
 	}
+
 	return nil
 }

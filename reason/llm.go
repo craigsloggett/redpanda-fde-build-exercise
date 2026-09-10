@@ -86,6 +86,7 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+
 	if c.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}

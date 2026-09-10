@@ -77,6 +77,7 @@ func NewServer(db *pgxpool.Pool, log *slog.Logger) *Server {
 		"since":  func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
 		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
+
 	return &Server{DB: db, Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
 }
 
@@ -89,11 +90,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /fragments/stats", s.fragmentStats)
 	mux.HandleFunc("GET /fragments/rows", s.fragmentRows)
 	mux.HandleFunc("GET /{$}", s.index)
+
 	static, err := fs.Sub(webFS, "web/static")
 	if err != nil {
 		panic(err)
 	}
+
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+
 	return mux
 }
 
@@ -104,22 +108,28 @@ func parseFilter(q url.Values) (Filter, error) {
 		if err != nil || c < 0 || c > 1 {
 			return f, fmt.Errorf("min_confidence must be a number from 0 to 1, got %q", v)
 		}
+
 		f.MinConfidence = c
 	}
+
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 500 {
 			return f, fmt.Errorf("limit must be from 1 to 500, got %q", v)
 		}
+
 		f.Limit = n
 	}
+
 	if v := q.Get("after"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
 		if err != nil {
 			return f, fmt.Errorf("after must be an RFC 3339 timestamp, got %q", v)
 		}
+
 		f.After = t
 	}
+
 	return f, nil
 }
 
@@ -134,6 +144,7 @@ func (s *Server) list(ctx context.Context, f Filter) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return pgx.CollectRows(rows, pgx.RowToStructByName[Row])
 }
 
@@ -142,26 +153,33 @@ func (s *Server) get(ctx context.Context, revID int64) (Row, error) {
 	if err != nil {
 		return Row{}, err
 	}
+
 	return pgx.CollectOneRow(rows, pgx.RowToStructByName[Row])
 }
 
 func (s *Server) stats(ctx context.Context) (Stats, error) {
 	st := Stats{ByRoute: map[string]int{}, ByLabel: map[string]int{}}
+
 	rows, err := s.DB.Query(ctx, `SELECT route, label, count(*) FROM verdicts GROUP BY route, label`)
 	if err != nil {
 		return st, err
 	}
 	defer rows.Close()
+
 	for rows.Next() {
-		var route, label string
-		var n int
+		var (
+			route, label string
+			n            int
+		)
 		if err := rows.Scan(&route, &label, &n); err != nil {
 			return st, err
 		}
+
 		st.Total += n
 		st.ByRoute[route] += n
 		st.ByLabel[label] += n
 	}
+
 	return st, rows.Err()
 }
 
@@ -171,6 +189,7 @@ func (s *Server) apiStats(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+
 	writeJSON(w, st)
 }
 
@@ -180,14 +199,17 @@ func (s *Server) apiList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	rows, err := s.list(r.Context(), f)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+
 	if rows == nil {
 		rows = []Row{}
 	}
+
 	writeJSON(w, rows)
 }
 
@@ -197,15 +219,18 @@ func (s *Server) apiGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rev_id must be an integer", http.StatusBadRequest)
 		return
 	}
+
 	row, err := s.get(r.Context(), revID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		http.Error(w, "no verdict for that revision", http.StatusNotFound)
 		return
 	}
+
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+
 	writeJSON(w, row)
 }
 
@@ -223,19 +248,24 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	p := page{Filter: f}
 	if p.Stats, err = s.stats(r.Context()); err == nil {
 		p.Rows, err = s.list(r.Context(), f)
 	}
+
 	if err != nil {
 		// Before the sink has connected once the table does not exist yet; the page should say so, not 500.
 		s.Log.Warn("query failed", "err", err)
 		p.Error = err.Error()
 	}
+
 	if len(p.Rows) > 0 {
 		p.Cursor = p.Rows[0].ReasonedAt.Format(time.RFC3339Nano)
 	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if err := s.tmpl.Execute(w, p); err != nil {
 		s.Log.Error("render", "err", err)
 	}
@@ -249,7 +279,9 @@ func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if err := s.tmpl.ExecuteTemplate(w, "stats", st); err != nil {
 		s.Log.Error("render", "err", err)
 	}
@@ -261,12 +293,15 @@ func (s *Server) fragmentRows(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	rows, err := s.list(r.Context(), f)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
 	if err := s.tmpl.ExecuteTemplate(w, "rows", rows); err != nil {
 		s.Log.Error("render", "err", err)
 	}
@@ -281,6 +316,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
+
 	if err := enc.Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
