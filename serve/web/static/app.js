@@ -28,4 +28,17 @@ async function poll() {
   rows.parentElement.hidden = false;
 }
 
-setInterval(() => poll().catch(() => {}), 20000);
+// The sink writes in batches and Postgres announces every row, so a burst collapses into one fetch.
+let pending = null;
+function refresh() {
+  if (pending) return;
+  pending = setTimeout(() => {
+    pending = null;
+    poll().catch(() => {});
+  }, 250);
+}
+
+const events = new EventSource("/events");
+// A reconnect may have missed rows, and the first open costs one harmless fetch.
+events.onopen = refresh;
+events.addEventListener("verdict", refresh);

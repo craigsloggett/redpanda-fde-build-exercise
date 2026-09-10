@@ -42,9 +42,12 @@ func run() error {
 	}
 	defer pool.Close()
 
+	app := NewServer(pool, log)
+	go app.Events.Run(ctx)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           NewServer(pool, log).Handler(),
+		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	errs := make(chan error, 1)

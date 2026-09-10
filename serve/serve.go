@@ -63,9 +63,10 @@ type Filter struct {
 }
 
 type Server struct {
-	DB   *pgxpool.Pool
-	Log  *slog.Logger
-	tmpl *template.Template
+	DB     *pgxpool.Pool
+	Events *Broker
+	Log    *slog.Logger
+	tmpl   *template.Template
 }
 
 func NewServer(pool *pgxpool.Pool, log *slog.Logger) *Server {
@@ -75,7 +76,7 @@ func NewServer(pool *pgxpool.Pool, log *slog.Logger) *Server {
 		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
 
-	return &Server{DB: pool, Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
+	return &Server{DB: pool, Events: newBroker(pool, log), Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -86,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("GET /events", s.events)
 	mux.HandleFunc("GET /api/stats", s.apiStats)
 	mux.HandleFunc("GET /api/verdicts", s.apiList)
 	mux.HandleFunc("GET /api/verdicts/{rev_id}", s.apiGet)

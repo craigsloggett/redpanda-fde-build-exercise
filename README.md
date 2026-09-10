@@ -31,7 +31,7 @@ docker compose up --build
 
 Then open:
 
-- http://localhost:8080 for the verdicts page, which picks up new rows every 20 s
+- http://localhost:8080 for the verdicts page, which updates as verdicts land
 - http://localhost:8080/api/verdicts for JSON, filtered by `route`, `label`, `min_confidence`, and `limit`
 - http://localhost:8080/api/stats for counts by route and label
 - http://localhost:8081 for Redpanda Console, to look at the topics
@@ -64,7 +64,7 @@ Reason commits an offset only after the verdict is on `wiki.edits.verdicts`. A m
 - [`transform/transform.yaml`](transform/transform.yaml) drops reverts, tiers and samples what is left, fetches the unified diff from the MediaWiki compare API at 5 requests per second, and writes `wiki.edits.enriched`. A failed fetch is recorded on the message, not dropped, so the gate can skip it.
 - [`serve/sink.yaml`](serve/sink.yaml) upserts verdicts into Postgres by revision id.
 
-**Schema** in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads. The sink applies it on start.
+**Schema** in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads, plus the trigger that tells Serve about each upsert. The sink applies it on start.
 
 **Env** knobs are optional and go in `.env`:
 

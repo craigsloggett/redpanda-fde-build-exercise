@@ -27,3 +27,14 @@ CREATE TABLE IF NOT EXISTS verdicts (
 
 CREATE INDEX IF NOT EXISTS verdicts_reasoned_at_idx ON verdicts (reasoned_at DESC);
 CREATE INDEX IF NOT EXISTS verdicts_route_idx ON verdicts (route, confidence DESC);
+
+CREATE OR REPLACE FUNCTION notify_verdict() RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('verdicts', NEW.rev_id::text);
+  RETURN NULL;
+END
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER verdicts_notify
+  AFTER INSERT OR UPDATE ON verdicts
+  FOR EACH ROW EXECUTE FUNCTION notify_verdict();
