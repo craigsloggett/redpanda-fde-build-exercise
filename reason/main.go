@@ -1,4 +1,3 @@
-// Command reason consumes enriched edits, asks the model for a verdict on each, and produces the verdicts.
 package main
 
 import (

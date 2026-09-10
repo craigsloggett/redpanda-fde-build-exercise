@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// Config is read once at startup so a bad value fails before any record is consumed.
 type Config struct {
 	Brokers       []string
 	TopicIn       string
@@ -41,7 +40,6 @@ func loadConfig() (Config, error) {
 
 	var err error
 
-	// A cold Ollama loads the model on the first request, which can take minutes on CPU.
 	if cfg.LLMTimeout, err = envDuration("LLM_TIMEOUT", 5*time.Minute); err != nil {
 		return cfg, err
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Output is the record written to the verdicts topic: the input exactly as received plus the decision.
 type Output struct {
 	Input
 	Verdict
@@ -48,8 +47,6 @@ func newKafkaClient(cfg Config) (*kgo.Client, error) {
 	return client, nil
 }
 
-// Run handles records one at a time. A record is committed only after its verdict was produced, so a
-// crash mid-record replays it on restart and the Postgres upsert absorbs the duplicate.
 func (c *Consumer) Run(ctx context.Context) error {
 	for {
 		fetches := c.Client.PollRecords(ctx, 1)
@@ -63,7 +60,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 
 		fetches.EachError(func(topic string, partition int32, err error) {
-			c.Log.Error("fetch error", "topic", topic, "partition", partition, "err", err)
+			c.Log.Error(
+				"fetch error",
+				"topic", topic,
+				"partition", partition,
+				"err", err,
+			)
 		})
 
 		for _, rec := range fetches.Records() {
@@ -77,8 +79,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 func (c *Consumer) handle(ctx context.Context, rec *kgo.Record) error {
 	var input Input
 	if err := json.Unmarshal(rec.Value, &input); err != nil || input.RevID == 0 {
-		// A record that cannot be decoded would block the partition forever if it were retried.
-		c.Log.Warn("skipping undecodable record", "partition", rec.Partition, "offset", rec.Offset, "err", err)
+		c.Log.Warn(
+			"skipping undecodable record",
+			"partition", rec.Partition,
+			"offset", rec.Offset,
+			"err", err,
+		)
 
 		return c.commit(ctx, rec)
 	}
@@ -106,7 +112,14 @@ func (c *Consumer) handle(ctx context.Context, rec *kgo.Record) error {
 		return fmt.Errorf("encode verdict: %w", err)
 	}
 
-	log.Info("verdict", "label", verdict.Label, "confidence", verdict.Confidence, "route", verdict.Route, "steps", verdict.Steps, "latency_ms", out.LatencyMS)
+	log.Info(
+		"verdict",
+		"label", verdict.Label,
+		"confidence", verdict.Confidence,
+		"route", verdict.Route,
+		"steps", verdict.Steps,
+		"latency_ms", out.LatencyMS,
+	)
 
 	record := &kgo.Record{Topic: c.TopicOut, Key: []byte(strconv.FormatInt(input.RevID, 10)), Value: value}
 
@@ -122,8 +135,12 @@ func (c *Consumer) handle(ctx context.Context, rec *kgo.Record) error {
 
 func (c *Consumer) commit(ctx context.Context, rec *kgo.Record) error {
 	if err := c.Client.CommitRecords(ctx, rec); err != nil {
-		// The verdict is already on the topic, so a failed commit only means a replay after restart.
-		c.Log.Warn("commit failed", "partition", rec.Partition, "offset", rec.Offset, "err", err)
+		c.Log.Warn(
+			"commit failed",
+			"partition", rec.Partition,
+			"offset", rec.Offset,
+			"err", err,
+		)
 	}
 
 	if ctx.Err() != nil {
@@ -133,8 +150,6 @@ func (c *Consumer) commit(ctx context.Context, rec *kgo.Record) error {
 	return nil
 }
 
-// retryUntilReachable keeps trying an operation whose only failure mode is an unreachable dependency
-// (model still loading, broker restarting). It gives up only when the service is shutting down.
 func retryUntilReachable[T any](ctx context.Context, log *slog.Logger, what string, fn func() (T, error)) (T, error) {
 	backoff := time.Second
 

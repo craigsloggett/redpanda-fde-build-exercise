@@ -15,13 +15,10 @@ type Chatter interface {
 	Chat(ctx context.Context, msgs []Message, format Format) (Reply, error)
 }
 
-// Format is the response_format the server is asked to hold the model to.
 type Format string
 
 const (
-	// FormatText leaves the shape of the reply to the prompt.
 	FormatText Format = ""
-	// FormatJSON has the server reject any reply that is not a JSON object.
 	FormatJSON Format = "json_object"
 )
 
@@ -76,7 +73,6 @@ type chatResponse struct {
 	} `json:"error"`
 }
 
-// Bound the number of tokens the model uses which is large enough for a thinking model to think and still answer.
 const maxCompletionTokens = 1200
 
 var (
@@ -111,7 +107,6 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, format Format) (R
 		return Reply{}, fmt.Errorf("llm request: %w", err)
 	}
 
-	// A Close error after the body was read to its limit carries nothing worth handling.
 	defer func() { _ = res.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))

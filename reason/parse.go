@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// The message of a parse error goes back to the model so it can repair its reply.
 var (
 	errNoObject   = errors.New("no JSON object found in reply")
 	errLabel      = errors.New("label is unusable")
@@ -166,7 +165,6 @@ func parseConfidence(raw json.RawMessage) (float64, error) {
 	return value, nil
 }
 
-// confidenceWord maps the words a model uses when it answers with a level instead of a number.
 func confidenceWord(text string) (float64, bool) {
 	switch text {
 	case "high":

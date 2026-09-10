@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// Route is where a verdict sends the edit.
 type Route string
 
 const (
@@ -132,8 +131,25 @@ func (r *Reasoner) assess(ctx context.Context, input Input, msgs []Message, stag
 		if err != nil {
 			steps = append(steps, stage+":parse_retry")
 			lastProblem = err.Error()
-			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: fmt.Sprintf(repairPrompt, err)})
-			r.Log.Debug("unparseable reply", "stage", stage, "attempt", attempts, "err", err, "finish", reply.FinishReason, "reply", truncate(reply.Content, 200))
+			msgs = append(
+				msgs,
+				Message{
+					Role:    "assistant",
+					Content: reply.Content,
+				},
+				Message{
+					Role:    "user",
+					Content: fmt.Sprintf(repairPrompt, err),
+				},
+			)
+			r.Log.Debug(
+				"unparseable reply",
+				"stage", stage,
+				"attempt", attempts,
+				"err", err,
+				"finish", reply.FinishReason,
+				"reply", truncate(reply.Content, 200),
+			)
 
 			continue
 		}
@@ -154,14 +170,29 @@ func (r *Reasoner) assess(ctx context.Context, input Input, msgs []Message, stag
 		}
 
 		if !groundRetry && attempts < r.MaxAttempts {
-			steps = append(steps, stage+":ground_retry")
-			msgs = append(msgs, Message{Role: "assistant", Content: reply.Content}, Message{Role: "user", Content: groundPrompt})
+			steps = append(
+				steps,
+				stage+":ground_retry",
+			)
+			msgs = append(
+				msgs,
+				Message{
+					Role:    "assistant",
+					Content: reply.Content,
+				},
+				Message{
+					Role:    "user",
+					Content: groundPrompt},
+			)
 			groundRetry = true
 
 			continue
 		}
 
-		verdict.Steps = append(steps, stage+":ungrounded")
+		verdict.Steps = append(
+			steps,
+			stage+":ungrounded",
+		)
 		verdict.Confidence = min(verdict.Confidence, r.LowConfidence)
 
 		return verdict, nil
