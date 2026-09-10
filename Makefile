@@ -1,4 +1,4 @@
-CONNECT_IMAGE         := docker.redpanda.com/redpandadata/connect:4.108.0
+CONNECT_IMAGE         := docker.redpanda.com/redpandadata/connect:4.108.0@sha256:7c6f0e53a2702fb7e3a7e8aff0f62e956025d51d131ac3631288b6eb143f22c2
 CONNECT_CONFIGS       := $(addprefix /repo/,$(wildcard ingest/*.yaml transform/*.yaml serve/*.yaml))
 GOLANGCI_LINT_VERSION := v2.13.2
 GOVULNCHECK_VERSION   := v1.8.0

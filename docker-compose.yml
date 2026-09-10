@@ -1,6 +1,7 @@
 services:
   redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v26.2.2
+    # yamllint disable-line rule:line-length
+    image: &redpanda-image docker.redpanda.com/redpandadata/redpanda:v26.2.2@sha256:468bd13a9f2bd24794cb7fddc867c767fb1008b9a07b297b89fde48c564d7d96
     command:
       - redpanda
       - start
@@ -24,7 +25,7 @@ services:
 
   # One-shot: creates the topics and turns off the broker's usage reporting to Redpanda Data.
   redpanda-init:
-    image: docker.redpanda.com/redpandadata/redpanda:v26.2.2
+    image: *redpanda-image
     entrypoint: [/bin/sh, -c]
     command:
       - |
@@ -41,7 +42,8 @@ services:
         condition: service_healthy
 
   console:
-    image: docker.redpanda.com/redpandadata/console:v3.11.0
+    # yamllint disable-line rule:line-length
+    image: docker.redpanda.com/redpandadata/console:v3.11.0@sha256:bf5ed3ee83e5b2dd6d1c1f1c8095ba252f384ce9354e7a3d2f780f0b4a486c09
     environment:
       KAFKA_BROKERS: redpanda:9092
       ANALYTICS_ENABLED: 'false'
@@ -52,7 +54,8 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:16.15
+    # yamllint disable-line rule:line-length
+    image: postgres:16.15@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
     environment:
       POSTGRES_USER: wiki
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
@@ -68,7 +71,8 @@ services:
       retries: 20
 
   ollama:
-    image: ollama/ollama:0.33.3
+    # yamllint disable-line rule:line-length
+    image: &ollama-image ollama/ollama:0.34.0@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba
     environment:
       OLLAMA_KEEP_ALIVE: 1h
       OLLAMA_CONTEXT_LENGTH: 8192
@@ -84,7 +88,7 @@ services:
 
   # One-shot: downloads the local model. Set OLLAMA_MODEL to empty in .env to skip it when using a hosted model.
   ollama-pull:
-    image: ollama/ollama:0.33.3
+    image: *ollama-image
     entrypoint: [/bin/sh, -c]
     command:
       - '[ -z "$$OLLAMA_MODEL" ] || ollama pull "$$OLLAMA_MODEL"'
@@ -96,7 +100,8 @@ services:
         condition: service_healthy
 
   ingest:
-    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    # yamllint disable-line rule:line-length
+    image: &connect-image docker.redpanda.com/redpandadata/connect:4.108.0@sha256:7c6f0e53a2702fb7e3a7e8aff0f62e956025d51d131ac3631288b6eb143f22c2
     command: [--disable-telemetry, run, /ingest/ingest.yaml]
     environment:
       REDPANDA_BROKERS: redpanda:9092
@@ -112,7 +117,7 @@ services:
     restart: unless-stopped
 
   transform:
-    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    image: *connect-image
     command: [--disable-telemetry, run, /transform/transform.yaml]
     environment:
       REDPANDA_BROKERS: redpanda:9092
@@ -150,7 +155,7 @@ services:
     restart: unless-stopped
 
   sink:
-    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    image: *connect-image
     command: [--disable-telemetry, run, /serve/sink.yaml]
     environment:
       REDPANDA_BROKERS: redpanda:9092
