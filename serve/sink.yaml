@@ -73,6 +73,7 @@ output:
         latency_ms = EXCLUDED.latency_ms, reasoned_at = EXCLUDED.reasoned_at
     init_files:
       - /serve/schema.sql
+    # One row per statement: Postgres rejects a multi-row upsert that hits the same revision twice,
+    # and the sink would retry that batch forever.
     batching:
-      count: 20
-      period: 1s
+      count: 1

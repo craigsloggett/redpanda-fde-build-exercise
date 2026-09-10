@@ -65,7 +65,7 @@ Reason commits an offset only after the verdict is on `wiki.edits.verdicts`. A m
 
 - [`ingest/ingest.yaml`](ingest/ingest.yaml) reads the SSE firehose, keeps human edits to English Wikipedia articles, and writes them to `wiki.edits.raw`.
 - [`transform/transform.yaml`](transform/transform.yaml) drops reverts, tiers and samples what is left, fetches the unified diff from the MediaWiki compare API at 5 requests per second, and writes `wiki.edits.enriched`. A failed fetch is recorded on the message, not dropped, so the gate can skip it.
-- [`serve/sink.yaml`](serve/sink.yaml) upserts verdicts into Postgres by revision id.
+- [`serve/sink.yaml`](serve/sink.yaml) upserts verdicts into Postgres by revision id, one statement per verdict.
 
 **Schema** in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads, plus the trigger that tells Serve about each upsert. The sink applies it on start.
 
