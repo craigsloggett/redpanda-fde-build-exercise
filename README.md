@@ -64,14 +64,14 @@ Reason commits an offset only after the verdict is on `wiki.edits.verdicts`. A m
 **Pipelines** are the three Connect configs. Everything that is not reasoning lives here.
 
 - [`ingest/ingest.yaml`](ingest/ingest.yaml) reads the SSE firehose, keeps human edits to English Wikipedia articles, and writes them to `wiki.edits.raw`.
-- [`transform/transform.yaml`](transform/transform.yaml) drops repeats and reverts, tiers and samples what is left, fetches the unified diff from the MediaWiki compare API at 5 requests per second, and writes `wiki.edits.enriched`. A failed fetch is recorded on the message, not dropped, so the gate can skip it.
+- [`transform/transform.yaml`](transform/transform.yaml) drops repeats and reverts, tiers and samples what is left by revision id, fetches the unified diff from the MediaWiki compare API at 5 requests per second, and writes `wiki.edits.enriched`. A failed fetch is recorded on the message, not dropped, so the gate can skip it.
 - [`serve/sink.yaml`](serve/sink.yaml) upserts verdicts into Postgres by revision id, one statement per verdict.
 
 **Schema** in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads, plus the trigger that tells Serve about each upsert. The sink applies it on start.
 
 **Env** knobs are optional and go in `.env`:
 
-- `SAMPLE_PERMILLE`: share of non-priority edits that reach the model, per thousand (default 50)
+- `SAMPLE_PERMILLE`: share of non-priority edits that reach the model, per thousand, chosen by revision id so a replay repeats the choice (default 50)
 - `DIFF_MAX_CHARS`: diff text sent to the model is cut here (default 4000)
 - `HIGH_CONFIDENCE`: at or above this a damaging verdict is flagged without a challenge (default 0.8)
 - `LOW_CONFIDENCE`: below this a constructive verdict goes to review (default 0.5)

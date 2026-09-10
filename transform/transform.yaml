@@ -29,7 +29,7 @@ pipeline:
         let priority = this.user.has_prefix("~") || this.comment.or("") == "" || $big
         root = if $priority {
           this.merge({"tier": "priority"})
-        } else if random_int(max: 999) < ${SAMPLE_PERMILLE:50} {
+        } else if this.revision.new.int64() % 1000 < ${SAMPLE_PERMILLE:50} {
           this.merge({"tier": "sampled"})
         } else {
           deleted()
