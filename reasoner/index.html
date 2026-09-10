@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="20">
+<title>Wikipedia edit patrol</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1b1f24; }
+  header { background: #fff; border-bottom: 1px solid #d9dde3; padding: 12px 20px; display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  .stat { color: #57606a; }
+  .stat b { color: #1b1f24; }
+  nav a { margin-right: 10px; }
+  nav a.on { font-weight: bold; text-decoration: none; }
+  main { padding: 12px 20px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #e6e8eb; }
+  th { font-weight: 600; color: #57606a; font-size: 12px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
+  .flagged { background: #c62828; } .review { background: #ef8f00; } .ok { background: #2e7d32; } .skipped { background: #78909c; }
+  .muted { color: #57606a; font-size: 12px; }
+  code { background: #f0f1f3; padding: 1px 4px; border-radius: 3px; font-size: 12px; white-space: pre-wrap; }
+  details pre { max-height: 300px; overflow: auto; background: #f0f1f3; padding: 8px; font-size: 12px; }
+  .warn { background: #fff4e5; border: 1px solid #f0c987; padding: 8px 12px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wikipedia edit patrol</h1>
+  <span class="stat">reviewed <b>{{.Stats.Total}}</b></span>
+  <span class="stat">flagged <b>{{index .Stats.ByRoute "flagged"}}</b></span>
+  <span class="stat">needs review <b>{{index .Stats.ByRoute "review"}}</b></span>
+  <span class="stat">ok <b>{{index .Stats.ByRoute "ok"}}</b></span>
+  <span class="stat">skipped <b>{{index .Stats.ByRoute "skipped"}}</b></span>
+  <nav>
+    <a href="/" {{if eq .Filter.Route ""}}class="on"{{end}}>all</a>
+    <a href="/?route=flagged" {{if eq .Filter.Route "flagged"}}class="on"{{end}}>flagged</a>
+    <a href="/?route=review" {{if eq .Filter.Route "review"}}class="on"{{end}}>review</a>
+    <a href="/?route=ok" {{if eq .Filter.Route "ok"}}class="on"{{end}}>ok</a>
+    <a href="/api/verdicts{{if .Filter.Route}}?route={{.Filter.Route}}{{end}}">json</a>
+  </nav>
+</header>
+<main>
+{{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
+{{if not .Rows}}<p class="muted">Nothing to show yet. Verdicts appear here as the reasoner works through the topic; the page refreshes every 20 seconds.</p>{{end}}
+{{if .Rows}}
+<table>
+  <tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr>
+  {{range .Rows}}
+  <tr>
+    <td class="muted">{{since .ReasonedAt}}</td>
+    <td>
+      <a href="{{.DiffURL}}" target="_blank" rel="noopener">{{.Title}}</a><br>
+      <span class="muted">{{.Editor}}{{if .EditorIsTemp}} (logged out){{end}}, {{printf "%+d" .BytesDelta}} bytes, {{.Tier}}</span>
+      {{if .Comment}}<br><span class="muted">summary: {{.Comment}}</span>{{end}}
+    </td>
+    <td><span class="badge {{.Route}}">{{.Route}}</span><br>{{.Label}} <span class="muted">{{pct .Confidence}}</span></td>
+    <td>{{.Reason}}{{if .Evidence}}<br><code>{{.Evidence}}</code>{{if not .Grounded}} <span class="muted">(not found in diff)</span>{{end}}{{end}}</td>
+    <td class="muted">{{range .Steps}}{{.}}<br>{{end}}{{.Attempts}} calls, {{.Tokens}} tokens, {{.LatencyMS}} ms
+      {{if .Diff}}<details><summary>diff</summary><pre>{{.Diff}}</pre></details>{{end}}
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
+</main>
+</body>
+</html>

@@ -7,4 +7,5 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /reasoner .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /reasoner /reasoner
+EXPOSE 8080
 ENTRYPOINT ["/reasoner"]

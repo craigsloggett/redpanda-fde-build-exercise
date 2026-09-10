@@ -134,13 +134,18 @@ services:
       REDPANDA_BROKERS: redpanda:9092
       TOPIC_IN: ${TOPIC_ENRICHED:-wiki.edits.enriched}
       TOPIC_OUT: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - 8080:8080
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
     restart: unless-stopped
