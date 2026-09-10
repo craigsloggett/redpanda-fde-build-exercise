@@ -15,7 +15,8 @@ async function poll() {
   if (fresh.length === 0) return;
   for (const tr of fresh) {
     // A verdict is a row plus an optional diff row. A replayed revision replaces both, matching the upsert.
-    for (const old of rows.querySelectorAll(`tr[data-rev-id="${tr.dataset.revId}"]`)) old.remove();
+    const selector = `tr[data-rev-id="${tr.dataset.revId}"]`;
+    for (const old of rows.querySelectorAll(selector)) old.remove();
     tr.classList.add("new");
   }
   rows.prepend(fragment.content);
