@@ -13,7 +13,7 @@ all: lint test build
 
 # Formatting
 
-.PHONY: format-yamlfmt format-gofumpt
+.PHONY: format-yamlfmt format-gofumpt format-biome
 
 format-yamlfmt:
 	yamlfmt .
@@ -21,11 +21,14 @@ format-yamlfmt:
 format-gofumpt:
 	$(GOLANGCI_LINT) fmt ./...
 
-format: format-yamlfmt format-gofumpt
+format-biome:
+	biome format --write .
+
+format: format-yamlfmt format-gofumpt format-biome
 
 # Linting
 
-.PHONY: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-golangci-lint lint-go-mod lint-govulncheck
+.PHONY: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-biome lint-golangci-lint lint-go-mod lint-govulncheck
 
 lint-yamlfmt:
 	yamlfmt -lint .
@@ -42,6 +45,9 @@ lint-compose:
 lint-connect:
 	docker run --rm -v "$$(pwd):/repo:ro" $(CONNECT_IMAGE) --disable-telemetry lint $(CONNECT_CONFIGS)
 
+lint-biome:
+	biome format .
+
 lint-golangci-lint:
 	$(GOLANGCI_LINT) run ./...
 
@@ -51,7 +57,7 @@ lint-go-mod:
 lint-govulncheck:
 	GOTOOLCHAIN=go$(GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
-lint: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-golangci-lint lint-go-mod lint-govulncheck
+lint: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-biome lint-golangci-lint lint-go-mod lint-govulncheck
 
 # Building
 
