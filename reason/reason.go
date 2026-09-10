@@ -230,29 +230,21 @@ func grounded(evidence, diff string) bool {
 		return true
 	}
 
-	run := longestCommonRun(quote, text)
-
-	return run >= minPartialRun && run*100 >= len(quote)*minPartialPercent
+	return containsRun(text, quote, runNeeded(len(quote)))
 }
 
-func longestCommonRun(left, right string) int {
-	prev, cur := make([]int, len(right)+1), make([]int, len(right)+1)
-	best := 0
+func runNeeded(quoteLen int) int {
+	return max(minPartialRun, (quoteLen*minPartialPercent+99)/100)
+}
 
-	for i := 1; i <= len(left); i++ {
-		for j := 1; j <= len(right); j++ {
-			if left[i-1] == right[j-1] {
-				cur[j] = prev[j-1] + 1
-				best = max(best, cur[j])
-			} else {
-				cur[j] = 0
-			}
+func containsRun(text, quote string, n int) bool {
+	for i := 0; i+n <= len(quote); i++ {
+		if strings.Contains(text, quote[i:i+n]) {
+			return true
 		}
-
-		prev, cur = cur, prev
 	}
 
-	return best
+	return false
 }
 
 func collapseSpace(text string) string {
