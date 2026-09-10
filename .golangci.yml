@@ -1,0 +1,72 @@
+version: '2'
+
+formatters:
+  enable:
+    - gofumpt
+
+linters:
+  default: standard
+  enable:
+    - containedctx
+    - embeddedstructfieldcheck
+    - err113
+    - errname
+    - errorlint
+    - forcetypeassert
+    - gochecknoglobals
+    - gochecknoinits
+    - godot
+    - goprintffuncname
+    - nakedret
+    - nonamedreturns
+    - predeclared
+    - revive
+    - thelper
+    - varnamelen
+    - wrapcheck
+  settings:
+    errcheck:
+      check-type-assertions: true
+    govet:
+      enable:
+        - shadow
+    revive:
+      enable-default-rules: true
+      rules:
+        - name: comment-spacings
+        - name: confusing-naming
+        - name: deep-exit
+        - name: early-return
+        - name: enforce-map-style
+          arguments:
+            - make
+        - name: enforce-slice-style
+          arguments:
+            - nil
+        - name: flag-parameter
+        - name: get-return
+        - name: import-alias-naming
+        - name: import-shadowing
+        - name: package-naming
+        - name: redundant-import-alias
+        - name: unexported-naming
+        - name: unnecessary-stmt
+        - name: unused-receiver
+        - name: use-any
+        - name: useless-break
+    staticcheck:
+      checks:
+        - all
+    varnamelen:
+      ignore-decls:
+        - w http.ResponseWriter
+        - r *http.Request
+        - t *testing.T
+        - i int
+        - j int
+  exclusions:
+    rules:
+      # Test failure messages are not an error contract anyone matches on, so a sentinel per message adds nothing.
+      - path: _test\.go
+        linters:
+          - err113

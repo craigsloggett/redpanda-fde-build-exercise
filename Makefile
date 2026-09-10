@@ -1,6 +1,7 @@
 CONNECT_IMAGE         := docker.redpanda.com/redpandadata/connect:4.108.0@sha256:7c6f0e53a2702fb7e3a7e8aff0f62e956025d51d131ac3631288b6eb143f22c2
 CONNECT_CONFIGS       := $(addprefix /repo/,$(wildcard ingest/*.yaml transform/*.yaml serve/*.yaml))
 GOLANGCI_LINT_VERSION := v2.13.2
+GOLANGCI_LINT         := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 GOVULNCHECK_VERSION   := v1.8.0
 GO_VERSION            := $(shell awk '/^go /{print $$2}' go.mod)
 BUILD_DIR             := .local/bin
@@ -12,15 +13,15 @@ all: lint test build
 
 # Formatting
 
-.PHONY: format-yamlfmt format-gofmt
+.PHONY: format-yamlfmt format-gofumpt
 
 format-yamlfmt:
 	yamlfmt .
 
-format-gofmt:
-	go fmt ./...
+format-gofumpt:
+	$(GOLANGCI_LINT) fmt ./...
 
-format: format-yamlfmt format-gofmt
+format: format-yamlfmt format-gofumpt
 
 # Linting
 
@@ -42,7 +43,7 @@ lint-connect:
 	docker run --rm -v "$$(pwd):/repo:ro" $(CONNECT_IMAGE) --disable-telemetry lint $(CONNECT_CONFIGS)
 
 lint-golangci-lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+	$(GOLANGCI_LINT) run ./...
 
 lint-go-mod:
 	go mod tidy && git diff --exit-code -- go.mod go.sum
