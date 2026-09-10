@@ -59,6 +59,7 @@ type Filter struct {
 	Label         string
 	MinConfidence float64
 	Limit         int
+	After         time.Time
 }
 
 type Server struct {
@@ -69,8 +70,9 @@ type Server struct {
 
 func NewServer(db *pgxpool.Pool, log *slog.Logger) *Server {
 	funcs := template.FuncMap{
-		"pct":   func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
-		"since": func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
+		"pct":    func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
+		"since":  func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
+		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
 	return &Server{DB: db, Log: log, tmpl: template.Must(template.New("index").Funcs(funcs).Parse(indexHTML))}
 }
@@ -81,6 +83,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stats", s.apiStats)
 	mux.HandleFunc("GET /api/verdicts", s.apiList)
 	mux.HandleFunc("GET /api/verdicts/{rev_id}", s.apiGet)
+	mux.HandleFunc("GET /fragments/stats", s.fragmentStats)
+	mux.HandleFunc("GET /fragments/rows", s.fragmentRows)
 	mux.HandleFunc("GET /{$}", s.index)
 	return mux
 }
@@ -101,6 +105,13 @@ func parseFilter(q url.Values) (Filter, error) {
 		}
 		f.Limit = n
 	}
+	if v := q.Get("after"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			return f, fmt.Errorf("after must be an RFC 3339 timestamp, got %q", v)
+		}
+		f.After = t
+	}
 	return f, nil
 }
 
@@ -110,8 +121,8 @@ const selectRows = `SELECT rev_id, rev_parent_id, title, editor, editor_is_temp,
 
 func (s *Server) list(ctx context.Context, f Filter) ([]Row, error) {
 	rows, err := s.DB.Query(ctx, selectRows+`
-		WHERE ($1 = '' OR route = $1) AND ($2 = '' OR label = $2) AND confidence >= $3
-		ORDER BY reasoned_at DESC LIMIT $4`, f.Route, f.Label, f.MinConfidence, f.Limit)
+		WHERE ($1 = '' OR route = $1) AND ($2 = '' OR label = $2) AND confidence >= $3 AND reasoned_at > $4
+		ORDER BY reasoned_at DESC LIMIT $5`, f.Route, f.Label, f.MinConfidence, f.After, f.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +205,7 @@ type page struct {
 	Filter Filter
 	Stats  Stats
 	Rows   []Row
+	Cursor string
 	Error  string
 }
 
@@ -212,8 +224,42 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		s.Log.Warn("query failed", "err", err)
 		p.Error = err.Error()
 	}
+	if len(p.Rows) > 0 {
+		p.Cursor = p.Rows[0].ReasonedAt.Format(time.RFC3339Nano)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.Execute(w, p); err != nil {
+		s.Log.Error("render", "err", err)
+	}
+}
+
+// The fragments render the same templates the page does, so a row looks the same whether it arrived with
+// the page or was inserted later.
+func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
+	st, err := s.stats(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, "stats", st); err != nil {
+		s.Log.Error("render", "err", err)
+	}
+}
+
+func (s *Server) fragmentRows(w http.ResponseWriter, r *http.Request) {
+	f, err := parseFilter(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rows, err := s.list(r.Context(), f)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, "rows", rows); err != nil {
 		s.Log.Error("render", "err", err)
 	}
 }

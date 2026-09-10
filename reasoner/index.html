@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="20">
 <title>Wikipedia edit patrol</title>
 <style>
   body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1b1f24; }
   header { background: #fff; border-bottom: 1px solid #d9dde3; padding: 12px 20px; display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
+  #stats { display: contents; }
   .stat { color: #57606a; }
   .stat b { color: #1b1f24; }
   nav a { margin-right: 10px; }
@@ -16,6 +16,8 @@
   table { width: 100%; border-collapse: collapse; background: #fff; }
   th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #e6e8eb; }
   th { font-weight: 600; color: #57606a; font-size: 12px; }
+  tr.new td { animation: arrive 3s ease-out; }
+  @keyframes arrive { from { background: #fff3c4; } to { background: transparent; } }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
   .flagged { background: #c62828; } .review { background: #ef8f00; } .ok { background: #2e7d32; } .skipped { background: #78909c; }
   .muted { color: #57606a; font-size: 12px; }
@@ -27,11 +29,7 @@
 <body>
 <header>
   <h1>Wikipedia edit patrol</h1>
-  <span class="stat">reviewed <b>{{.Stats.Total}}</b></span>
-  <span class="stat">flagged <b>{{index .Stats.ByRoute "flagged"}}</b></span>
-  <span class="stat">needs review <b>{{index .Stats.ByRoute "review"}}</b></span>
-  <span class="stat">ok <b>{{index .Stats.ByRoute "ok"}}</b></span>
-  <span class="stat">skipped <b>{{index .Stats.ByRoute "skipped"}}</b></span>
+  <span id="stats">{{template "stats" .Stats}}</span>
   <nav>
     <a href="/" {{if eq .Filter.Route ""}}class="on"{{end}}>all</a>
     <a href="/?route=flagged" {{if eq .Filter.Route "flagged"}}class="on"{{end}}>flagged</a>
@@ -42,12 +40,55 @@
 </header>
 <main>
 {{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
-{{if not .Rows}}<p class="muted">Nothing to show yet. Verdicts appear here as the reasoner works through the topic; the page refreshes every 20 seconds.</p>{{end}}
-{{if .Rows}}
-<table>
-  <tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr>
-  {{range .Rows}}
-  <tr>
+<p id="empty" class="muted" {{if .Rows}}hidden{{end}}>Nothing to show yet. Verdicts appear here as the reasoner works through the topic.</p>
+<table {{if not .Rows}}hidden{{end}}>
+  <thead><tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr></thead>
+  <tbody id="rows" data-after="{{.Cursor}}">{{template "rows" .Rows}}</tbody>
+</table>
+</main>
+<script>
+  // New verdicts are inserted above the existing rows, so scrolling and open diffs are left alone.
+  const rows = document.getElementById("rows");
+  const params = new URLSearchParams(location.search);
+  let after = rows.dataset.after;
+
+  async function poll() {
+    const query = new URLSearchParams(params);
+    if (after) query.set("after", after);
+    const [rowsRes, statsRes] = await Promise.all([fetch("/fragments/rows?" + query), fetch("/fragments/stats")]);
+    if (!rowsRes.ok || !statsRes.ok) return;
+    document.getElementById("stats").innerHTML = await statsRes.text();
+    const fragment = document.createElement("template");
+    fragment.innerHTML = await rowsRes.text();
+    const fresh = fragment.content.querySelectorAll("tr");
+    if (fresh.length === 0) return;
+    for (const tr of fresh) {
+      // A replayed verdict for a revision already shown replaces its old row, matching the upsert.
+      rows.querySelector(`tr[data-rev-id="${tr.dataset.revId}"]`)?.remove();
+      tr.classList.add("new");
+    }
+    rows.prepend(fragment.content);
+    after = rows.firstElementChild.dataset.reasonedAt;
+    document.getElementById("empty").hidden = true;
+    rows.parentElement.hidden = false;
+  }
+
+  setInterval(() => poll().catch(() => {}), 20000);
+</script>
+</body>
+</html>
+
+{{define "stats"}}
+  <span class="stat">reviewed <b>{{.Total}}</b></span>
+  <span class="stat">flagged <b>{{index .ByRoute "flagged"}}</b></span>
+  <span class="stat">needs review <b>{{index .ByRoute "review"}}</b></span>
+  <span class="stat">ok <b>{{index .ByRoute "ok"}}</b></span>
+  <span class="stat">skipped <b>{{index .ByRoute "skipped"}}</b></span>
+{{end}}
+
+{{define "rows"}}
+  {{range .}}
+  <tr data-rev-id="{{.RevID}}" data-reasoned-at="{{cursor .ReasonedAt}}">
     <td class="muted">{{since .ReasonedAt}}</td>
     <td>
       <a href="{{.DiffURL}}" target="_blank" rel="noopener">{{.Title}}</a><br>
@@ -61,8 +102,4 @@
     </td>
   </tr>
   {{end}}
-</table>
 {{end}}
-</main>
-</body>
-</html>
