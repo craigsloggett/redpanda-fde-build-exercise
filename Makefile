@@ -6,6 +6,15 @@ GOVULNCHECK_VERSION   := v1.8.0
 GO_VERSION            := $(shell awk '/^go /{print $$2}' go.mod)
 BUILD_DIR             := .local/bin
 COMPOSE_PROJECT       := redpanda-fde-build-exercise
+PAGE_URL              := http://localhost:8080
+
+ifeq ($(OS),Windows_NT)
+OPEN := start
+else ifeq ($(shell uname -s),Darwin)
+OPEN := open
+else
+OPEN := xdg-open
+endif
 
 .PHONY: all build format lint test up down reset-sink clean clean-all
 
@@ -73,7 +82,9 @@ test:
 # Docker Compose
 
 up:
-	docker compose up --build
+	docker compose up --build --detach --wait
+	$(OPEN) $(PAGE_URL) || echo "Open $(PAGE_URL) in a browser"
+	docker compose logs --follow
 
 down:
 	docker compose down

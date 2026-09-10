@@ -29,6 +29,9 @@ First start pulls `gemma4:e4b` into the Ollama volume, which takes a few minutes
 docker compose up --build
 ```
 
+> [!TIP]
+> `make up` does the same detached, opens the page in your browser once every service is up, and follows the logs. `make down` stops the stack.
+
 Then open:
 
 - http://localhost:8080 for the verdicts page, which updates as verdicts land
