@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// Chatter is the only thing the reasoning loop needs from a model. The test drives it with scripted replies.
 type Chatter interface {
 	Chat(ctx context.Context, msgs []Message, jsonMode bool) (Reply, error)
 }
@@ -28,8 +27,6 @@ type Reply struct {
 	CompletionTokens int
 }
 
-// ChatClient speaks the OpenAI chat-completions wire shape, which Ollama, OpenAI, and Anthropic's
-// compatibility layer all accept, so switching providers is a base URL change.
 type ChatClient struct {
 	BaseURL string
 	Model   string
@@ -58,16 +55,18 @@ type chatResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 	} `json:"usage"`
+
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
-// Large enough for a thinking model to think and still answer; the model stops long before this in the normal case.
+// Bound the number of tokens the model uses which is large enough for a thinking model to think and still answer.
 const maxCompletionTokens = 1200
 
 func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (Reply, error) {
@@ -75,6 +74,7 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	if jsonMode {
 		req.ResponseFormat = &responseFormat{Type: "json_object"}
 	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return Reply{}, err
@@ -84,6 +84,7 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	if err != nil {
 		return Reply{}, err
 	}
+
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
@@ -93,11 +94,14 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	if err != nil {
 		return Reply{}, fmt.Errorf("llm request: %w", err)
 	}
+
 	defer func() { _ = res.Body.Close() }()
+
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
 		return Reply{}, fmt.Errorf("llm response: %w", err)
 	}
+
 	if res.StatusCode/100 != 2 {
 		return Reply{}, fmt.Errorf("llm status %d: %s", res.StatusCode, truncate(string(raw), 300))
 	}
@@ -106,18 +110,22 @@ func (c *ChatClient) Chat(ctx context.Context, msgs []Message, jsonMode bool) (R
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return Reply{}, fmt.Errorf("llm response is not JSON: %w", err)
 	}
+
 	if parsed.Error != nil {
 		return Reply{}, fmt.Errorf("llm error: %s", parsed.Error.Message)
 	}
+
 	if len(parsed.Choices) == 0 {
 		return Reply{}, errors.New("llm response has no choices")
 	}
+
 	choice := parsed.Choices[0]
 	content := choice.Message.Content
+
 	if strings.TrimSpace(content) == "" {
-		// A thinking model can spend its whole reply in the reasoning field; the answer may still be in there.
 		content = choice.Message.Reasoning
 	}
+
 	return Reply{
 		Content:          content,
 		FinishReason:     choice.FinishReason,
@@ -130,5 +138,6 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
+
 	return s[:n] + "..."
 }
