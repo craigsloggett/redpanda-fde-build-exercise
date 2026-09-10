@@ -1,8 +1,8 @@
 CONNECT_IMAGE         := docker.redpanda.com/redpandadata/connect:4.108.0
-CONNECT_CONFIGS       := $(addprefix /repo/,$(wildcard ingest/*.yaml transform/*.yaml connect/*.yaml))
+CONNECT_CONFIGS       := $(addprefix /repo/,$(wildcard ingest/*.yaml transform/*.yaml serve/*.yaml))
 GOLANGCI_LINT_VERSION := v2.13.2
 GOVULNCHECK_VERSION   := v1.8.0
-GO_VERSION            := $(shell awk '/^go /{print $$2}' reasoner/go.mod)
+GO_VERSION            := $(shell awk '/^go /{print $$2}' go.mod)
 BUILD_DIR             := .local/bin
 
 .PHONY: all build format lint test up down reset-sink
@@ -17,7 +17,7 @@ format-yamlfmt:
 	yamlfmt .
 
 format-gofmt:
-	cd reasoner && go fmt ./...
+	go fmt ./...
 
 format: format-yamlfmt format-gofmt
 
@@ -41,25 +41,26 @@ lint-connect:
 	docker run --rm -v "$$(pwd):/repo:ro" $(CONNECT_IMAGE) --disable-telemetry lint $(CONNECT_CONFIGS)
 
 lint-golangci-lint:
-	cd reasoner && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
 
 lint-go-mod:
-	cd reasoner && go mod tidy && git diff --exit-code -- go.mod go.sum
+	go mod tidy && git diff --exit-code -- go.mod go.sum
 
 lint-govulncheck:
-	cd reasoner && GOTOOLCHAIN=go$(GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	GOTOOLCHAIN=go$(GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 lint: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-golangci-lint lint-go-mod lint-govulncheck
 
 # Building
 
 build:
-	cd reasoner && CGO_ENABLED=0 go build -trimpath -o ../$(BUILD_DIR)/reasoner .
+	CGO_ENABLED=0 go build -trimpath -o $(BUILD_DIR)/reason ./reason
+	CGO_ENABLED=0 go build -trimpath -o $(BUILD_DIR)/serve ./serve
 
 # Testing
 
 test:
-	cd reasoner && go test -race -count=1 ./...
+	go test -race -count=1 ./...
 
 # Docker Compose
 

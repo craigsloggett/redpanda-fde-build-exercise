@@ -72,7 +72,7 @@ output:
         model = EXCLUDED.model, attempts = EXCLUDED.attempts, tokens = EXCLUDED.tokens,
         latency_ms = EXCLUDED.latency_ms, reasoned_at = EXCLUDED.reasoned_at
     init_files:
-      - /schema/schema.sql
+      - /serve/schema.sql
     batching:
       count: 20
       period: 1s

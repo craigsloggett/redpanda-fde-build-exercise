@@ -17,7 +17,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: reasoner/go.mod
+          go-version-file: go.mod
 
       - name: Install govulncheck
         env:
@@ -26,6 +26,5 @@ jobs:
         shell: sh
 
       - name: Run govulncheck
-        working-directory: reasoner
         run: govulncheck ./...
         shell: sh

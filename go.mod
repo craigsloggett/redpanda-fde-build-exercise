@@ -1,4 +1,4 @@
-module github.com/craigsloggett/redpanda-fde-build-exercise/reasoner
+module github.com/craigsloggett/redpanda-fde-build-exercise
 
 go 1.26.8
 

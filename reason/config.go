@@ -23,9 +23,6 @@ type Config struct {
 	MaxAttempts    int
 	HighConfidence float64
 	LowConfidence  float64
-
-	PostgresDSN string
-	HTTPAddr    string
 }
 
 func loadConfig() (Config, error) {
@@ -37,8 +34,6 @@ func loadConfig() (Config, error) {
 		LLMBaseURL:    strings.TrimRight(envOr("LLM_BASE_URL", "http://ollama:11434/v1"), "/"),
 		LLMModel:      envOr("LLM_MODEL", "gemma4:e4b"),
 		LLMAPIKey:     os.Getenv("LLM_API_KEY"),
-		PostgresDSN:   envOr("POSTGRES_DSN", "postgres://wiki:wiki@postgres:5432/wiki?sslmode=disable"),
-		HTTPAddr:      envOr("HTTP_ADDR", ":8080"),
 	}
 
 	var err error

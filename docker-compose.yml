@@ -67,23 +67,6 @@ services:
       timeout: 5s
       retries: 20
 
-  connect-sink:
-    image: docker.redpanda.com/redpandadata/connect:4.108.0
-    command: [--disable-telemetry, run, /connect/sink.yaml]
-    environment:
-      REDPANDA_BROKERS: redpanda:9092
-      TOPIC_VERDICTS: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
-      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
-    volumes:
-      - ./connect:/connect:ro
-      - ./postgres:/schema:ro
-    depends_on:
-      redpanda-init:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-
   ollama:
     image: ollama/ollama:0.33.3
     environment:
@@ -147,26 +130,53 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  reasoner:
-    build: ./reasoner
+  reason:
+    build:
+      context: .
+      target: reason
     environment:
       REDPANDA_BROKERS: redpanda:9092
       TOPIC_IN: ${TOPIC_ENRICHED:-wiki.edits.enriched}
       TOPIC_OUT: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
-      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    ports:
-      - 8080:8080
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+      ollama-pull:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sink:
+    image: docker.redpanda.com/redpandadata/connect:4.108.0
+    command: [--disable-telemetry, run, /serve/sink.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_VERDICTS: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
+    volumes:
+      - ./serve:/serve:ro
     depends_on:
       redpanda-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
+    restart: unless-stopped
+
+  serve:
+    build:
+      context: .
+      target: serve
+    environment:
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - 8080:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
