@@ -4,9 +4,9 @@ GOLANGCI_LINT_VERSION := v2.13.2
 GOVULNCHECK_VERSION   := v1.8.0
 GO_VERSION            := $(shell awk '/^go /{print $$2}' reasoner/go.mod)
 
-.PHONY: all format lint up down
+.PHONY: all format lint test up down
 
-all: lint
+all: lint test
 
 # Formatting
 
@@ -49,6 +49,11 @@ lint-govulncheck:
 	cd reasoner && GOTOOLCHAIN=go$(GO_VERSION) go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 lint: lint-yamlfmt lint-yamllint lint-actionlint lint-compose lint-connect lint-golangci-lint lint-go-mod lint-govulncheck
+
+# Testing
+
+test:
+	cd reasoner && go test -race -count=1 ./...
 
 # Docker Compose
 
