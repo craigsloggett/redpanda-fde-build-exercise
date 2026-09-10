@@ -1,8 +1,10 @@
+// Command serve reads the verdicts the sink stored in Postgres and serves the review page and its JSON API.
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,15 +37,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	db, err := pgxpool.New(ctx, cfg.PostgresDSN)
+	pool, err := pgxpool.New(ctx, cfg.PostgresDSN)
 	if err != nil {
-		return err
+		return fmt.Errorf("postgres pool: %w", err)
 	}
-	defer db.Close()
+	defer pool.Close()
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           NewServer(db, log).Handler(),
+		Handler:           NewServer(pool, log).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	errs := make(chan error, 1)
@@ -66,5 +68,9 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+
+	return nil
 }

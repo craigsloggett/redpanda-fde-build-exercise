@@ -71,17 +71,22 @@ type Server struct {
 	tmpl *template.Template
 }
 
-func NewServer(db *pgxpool.Pool, log *slog.Logger) *Server {
+func NewServer(pool *pgxpool.Pool, log *slog.Logger) *Server {
 	funcs := template.FuncMap{
 		"pct":    func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
 		"since":  func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
 		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
 
-	return &Server{DB: db, Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
+	return &Server{DB: pool, Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
 }
 
 func (s *Server) Handler() http.Handler {
+	static, err := fs.Sub(webFS, "web/static")
+	if err != nil {
+		panic(err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/stats", s.apiStats)
@@ -90,124 +95,136 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /fragments/stats", s.fragmentStats)
 	mux.HandleFunc("GET /fragments/rows", s.fragmentRows)
 	mux.HandleFunc("GET /{$}", s.index)
-
-	static, err := fs.Sub(webFS, "web/static")
-	if err != nil {
-		panic(err)
-	}
-
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 
 	return mux
 }
 
-func parseFilter(q url.Values) (Filter, error) {
-	f := Filter{Route: q.Get("route"), Label: q.Get("label"), Limit: 50}
-	if v := q.Get("min_confidence"); v != "" {
-		c, err := strconv.ParseFloat(v, 64)
-		if err != nil || c < 0 || c > 1 {
-			return f, fmt.Errorf("min_confidence must be a number from 0 to 1, got %q", v)
+var errFilter = errors.New("invalid filter")
+
+func parseFilter(query url.Values) (Filter, error) {
+	filter := Filter{Route: query.Get("route"), Label: query.Get("label"), Limit: 50}
+
+	if text := query.Get("min_confidence"); text != "" {
+		confidence, err := strconv.ParseFloat(text, 64)
+		if err != nil || confidence < 0 || confidence > 1 {
+			return filter, fmt.Errorf("%w: min_confidence must be a number from 0 to 1, got %q", errFilter, text)
 		}
 
-		f.MinConfidence = c
+		filter.MinConfidence = confidence
 	}
 
-	if v := q.Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 500 {
-			return f, fmt.Errorf("limit must be from 1 to 500, got %q", v)
+	if text := query.Get("limit"); text != "" {
+		limit, err := strconv.Atoi(text)
+		if err != nil || limit < 1 || limit > 500 {
+			return filter, fmt.Errorf("%w: limit must be from 1 to 500, got %q", errFilter, text)
 		}
 
-		f.Limit = n
+		filter.Limit = limit
 	}
 
-	if v := q.Get("after"); v != "" {
-		t, err := time.Parse(time.RFC3339Nano, v)
+	if text := query.Get("after"); text != "" {
+		after, err := time.Parse(time.RFC3339Nano, text)
 		if err != nil {
-			return f, fmt.Errorf("after must be an RFC 3339 timestamp, got %q", v)
+			return filter, fmt.Errorf("%w: after must be an RFC 3339 timestamp, got %q", errFilter, text)
 		}
 
-		f.After = t
+		filter.After = after
 	}
 
-	return f, nil
+	return filter, nil
 }
 
 const selectRows = `SELECT rev_id, rev_parent_id, title, editor, editor_is_temp, comment, bytes_delta, event_ts, diff_url, tier,
 	diff, diff_truncated, label, confidence, reason, evidence, grounded, route, steps, model, attempts, tokens, latency_ms, reasoned_at
 	FROM verdicts`
 
-func (s *Server) list(ctx context.Context, f Filter) ([]Row, error) {
+func (s *Server) list(ctx context.Context, filter Filter) ([]Row, error) {
 	rows, err := s.DB.Query(ctx, selectRows+`
 		WHERE ($1 = '' OR route = $1) AND ($2 = '' OR label = $2) AND confidence >= $3 AND reasoned_at > $4
-		ORDER BY reasoned_at DESC LIMIT $5`, f.Route, f.Label, f.MinConfidence, f.After, f.Limit)
+		ORDER BY reasoned_at DESC LIMIT $5`, filter.Route, filter.Label, filter.MinConfidence, filter.After, filter.Limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query verdicts: %w", err)
 	}
 
-	return pgx.CollectRows(rows, pgx.RowToStructByName[Row])
+	result, err := pgx.CollectRows(rows, pgx.RowToStructByName[Row])
+	if err != nil {
+		return nil, fmt.Errorf("scan verdicts: %w", err)
+	}
+
+	return result, nil
 }
 
 func (s *Server) get(ctx context.Context, revID int64) (Row, error) {
 	rows, err := s.DB.Query(ctx, selectRows+` WHERE rev_id = $1`, revID)
 	if err != nil {
-		return Row{}, err
+		return Row{}, fmt.Errorf("query verdict: %w", err)
 	}
 
-	return pgx.CollectOneRow(rows, pgx.RowToStructByName[Row])
+	row, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[Row])
+	if err != nil {
+		return Row{}, fmt.Errorf("scan verdict: %w", err)
+	}
+
+	return row, nil
 }
 
 func (s *Server) stats(ctx context.Context) (Stats, error) {
-	st := Stats{ByRoute: map[string]int{}, ByLabel: map[string]int{}}
+	stats := Stats{ByRoute: make(map[string]int), ByLabel: make(map[string]int)}
 
 	rows, err := s.DB.Query(ctx, `SELECT route, label, count(*) FROM verdicts GROUP BY route, label`)
 	if err != nil {
-		return st, err
+		return stats, fmt.Errorf("query stats: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var (
 			route, label string
-			n            int
+			count        int
 		)
-		if err := rows.Scan(&route, &label, &n); err != nil {
-			return st, err
+
+		if err := rows.Scan(&route, &label, &count); err != nil {
+			return stats, fmt.Errorf("scan stats: %w", err)
 		}
 
-		st.Total += n
-		st.ByRoute[route] += n
-		st.ByLabel[label] += n
+		stats.Total += count
+		stats.ByRoute[route] += count
+		stats.ByLabel[label] += count
 	}
 
-	return st, rows.Err()
+	if err := rows.Err(); err != nil {
+		return stats, fmt.Errorf("read stats: %w", err)
+	}
+
+	return stats, nil
 }
 
 func (s *Server) apiStats(w http.ResponseWriter, r *http.Request) {
-	st, err := s.stats(r.Context())
+	stats, err := s.stats(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 
-	writeJSON(w, st)
+	writeJSON(w, stats)
 }
 
 func (s *Server) apiList(w http.ResponseWriter, r *http.Request) {
-	f, err := parseFilter(r.URL.Query())
+	filter, err := parseFilter(r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	rows, err := s.list(r.Context(), f)
+	rows, err := s.list(r.Context(), filter)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 
 	if rows == nil {
-		rows = []Row{}
+		rows = []Row{} //nolint:revive // Clients get [] for an empty page, where a nil slice encodes as null.
 	}
 
 	writeJSON(w, rows)
@@ -243,30 +260,30 @@ type page struct {
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	f, err := parseFilter(r.URL.Query())
+	filter, err := parseFilter(r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	p := page{Filter: f}
-	if p.Stats, err = s.stats(r.Context()); err == nil {
-		p.Rows, err = s.list(r.Context(), f)
+	view := page{Filter: filter}
+	if view.Stats, err = s.stats(r.Context()); err == nil {
+		view.Rows, err = s.list(r.Context(), filter)
 	}
 
 	if err != nil {
 		// Before the sink has connected once the table does not exist yet; the page should say so, not 500.
 		s.Log.Warn("query failed", "err", err)
-		p.Error = err.Error()
+		view.Error = err.Error()
 	}
 
-	if len(p.Rows) > 0 {
-		p.Cursor = p.Rows[0].ReasonedAt.Format(time.RFC3339Nano)
+	if len(view.Rows) > 0 {
+		view.Cursor = view.Rows[0].ReasonedAt.Format(time.RFC3339Nano)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if err := s.tmpl.Execute(w, p); err != nil {
+	if err := s.tmpl.Execute(w, view); err != nil {
 		s.Log.Error("render", "err", err)
 	}
 }
@@ -274,7 +291,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 // The fragments render the same templates the page does, so a row looks the same whether it arrived with
 // the page or was inserted later.
 func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
-	st, err := s.stats(r.Context())
+	stats, err := s.stats(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -282,19 +299,19 @@ func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if err := s.tmpl.ExecuteTemplate(w, "stats", st); err != nil {
+	if err := s.tmpl.ExecuteTemplate(w, "stats", stats); err != nil {
 		s.Log.Error("render", "err", err)
 	}
 }
 
 func (s *Server) fragmentRows(w http.ResponseWriter, r *http.Request) {
-	f, err := parseFilter(r.URL.Query())
+	filter, err := parseFilter(r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	rows, err := s.list(r.Context(), f)
+	rows, err := s.list(r.Context(), filter)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -312,12 +329,13 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	http.Error(w, "database query failed: "+err.Error(), http.StatusServiceUnavailable)
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
+func writeJSON(w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
+
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 
-	if err := enc.Encode(v); err != nil {
+	if err := enc.Encode(body); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
