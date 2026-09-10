@@ -19,24 +19,51 @@ header h1 {
   font-size: 18px;
   margin: 0;
 }
-#stats {
-  display: contents;
-}
-.stat {
+header p {
+  margin: 2px 0 0;
   color: #57606a;
+  font-size: 13px;
 }
-.stat b {
-  color: #1b1f24;
-}
-nav a {
-  margin-right: 10px;
-}
-nav a.on {
-  font-weight: bold;
-  text-decoration: none;
+header a {
+  margin-left: auto;
+  font-size: 12px;
 }
 main {
   padding: 12px 20px;
+}
+#stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.tile {
+  flex: 1 1 120px;
+  background: #fff;
+  border: 1px solid #d9dde3;
+  border-bottom: 3px solid var(--route, #d9dde3);
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: #57606a;
+  font-size: 12px;
+  text-decoration: none;
+}
+.tile:hover {
+  border-color: var(--route, #1b1f24);
+}
+.tile b {
+  display: block;
+  font-size: 22px;
+  line-height: 1.2;
+  color: #1b1f24;
+}
+.tile.on {
+  background: var(--route, #1b1f24);
+  border-color: var(--route, #1b1f24);
+  color: #fff;
+}
+.tile.on b {
+  color: #fff;
 }
 table {
   width: 100%;
@@ -100,18 +127,19 @@ tr.new td {
   border-radius: 10px;
   font-size: 12px;
   color: #fff;
+  background: var(--route, #57606a);
 }
 .flagged {
-  background: #c62828;
+  --route: #c62828;
 }
 .review {
-  background: #ef8f00;
+  --route: #ef8f00;
 }
 .ok {
-  background: #2e7d32;
+  --route: #2e7d32;
 }
 .skipped {
-  background: #78909c;
+  --route: #78909c;
 }
 .muted {
   color: #57606a;

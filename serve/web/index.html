@@ -2,27 +2,24 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Wikipedia edit patrol</title>
+<title>Wikipedia Edit Patrol</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <header>
-  <h1>Wikipedia edit patrol</h1>
-  <span id="stats">{{template "stats" .Stats}}</span>
-  <nav>
-    <a href="/" {{if eq .Filter.Route ""}}class="on"{{end}}>all</a>
-    <a href="/?route=flagged" {{if eq .Filter.Route "flagged"}}class="on"{{end}}>flagged</a>
-    <a href="/?route=review" {{if eq .Filter.Route "review"}}class="on"{{end}}>review</a>
-    <a href="/?route=ok" {{if eq .Filter.Route "ok"}}class="on"{{end}}>ok</a>
-    <a href="/api/verdicts{{if .Filter.Route}}?route={{.Filter.Route}}{{end}}">json</a>
-  </nav>
+  <div>
+    <h1>Wikipedia Edit Patrol</h1>
+    <p>Live edits to English Wikipedia, each judged from its diff by a local model. Damaging edits are flagged and close calls wait for a human.</p>
+  </div>
+  <a href="/api/verdicts{{if .Filter.Route}}?route={{.Filter.Route}}{{end}}">JSON</a>
 </header>
 <main>
 {{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
+<nav id="stats">{{template "stats" .}}</nav>
 <p id="empty" class="muted" {{if .Rows}}hidden{{end}}>Nothing to show yet. Verdicts appear here as the reasoner works through the topic.</p>
 <table {{if not .Rows}}hidden{{end}}>
   <colgroup><col class="when"><col class="edit"><col class="verdict"><col class="why"><col class="trace"></colgroup>
-  <thead><tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr></thead>
+  <thead><tr><th>When</th><th>Edit</th><th>Verdict</th><th>Why</th><th>Trace</th></tr></thead>
   <tbody id="rows" data-after="{{.Cursor}}">{{template "rows" .Rows}}</tbody>
 </table>
 </main>
@@ -31,11 +28,11 @@
 </html>
 
 {{define "stats"}}
-  <span class="stat">reviewed <b>{{.Total}}</b></span>
-  <span class="stat">flagged <b>{{index .ByRoute "flagged"}}</b></span>
-  <span class="stat">needs review <b>{{index .ByRoute "review"}}</b></span>
-  <span class="stat">ok <b>{{index .ByRoute "ok"}}</b></span>
-  <span class="stat">skipped <b>{{index .ByRoute "skipped"}}</b></span>
+  <a class="tile{{if not .Filter.Route}} on{{end}}" href="/"><b>{{.Stats.Total}}</b>Reviewed</a>
+  <a class="tile flagged{{if eq .Filter.Route "flagged"}} on{{end}}" href="/?route=flagged"><b>{{index .Stats.ByRoute "flagged"}}</b>Flagged</a>
+  <a class="tile review{{if eq .Filter.Route "review"}} on{{end}}" href="/?route=review"><b>{{index .Stats.ByRoute "review"}}</b>Needs Review</a>
+  <a class="tile ok{{if eq .Filter.Route "ok"}} on{{end}}" href="/?route=ok"><b>{{index .Stats.ByRoute "ok"}}</b>OK</a>
+  <a class="tile skipped{{if eq .Filter.Route "skipped"}} on{{end}}" href="/?route=skipped"><b>{{index .Stats.ByRoute "skipped"}}</b>Skipped</a>
 {{end}}
 
 {{define "rows"}}

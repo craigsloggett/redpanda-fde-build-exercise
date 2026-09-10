@@ -8,7 +8,7 @@ async function poll() {
   if (after) query.set("after", after);
   const [rowsRes, statsRes] = await Promise.all([
     fetch("/fragments/rows?" + query),
-    fetch("/fragments/stats"),
+    fetch("/fragments/stats?" + params),
   ]);
   if (!rowsRes.ok || !statsRes.ok) return;
   document.getElementById("stats").innerHTML = await statsRes.text();

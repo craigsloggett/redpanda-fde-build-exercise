@@ -285,6 +285,12 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
+	filter, err := parseFilter(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	stats, err := s.stats(r.Context())
 	if err != nil {
 		s.fail(w, err)
@@ -293,7 +299,7 @@ func (s *Server) fragmentStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	if err := s.tmpl.ExecuteTemplate(w, "stats", stats); err != nil {
+	if err := s.tmpl.ExecuteTemplate(w, "stats", page{Filter: filter, Stats: stats}); err != nil {
 		s.Log.Error("render", "err", err)
 	}
 }
