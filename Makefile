@@ -79,10 +79,10 @@ down:
 	docker compose down
 
 reset-sink:
-	docker compose stop connect-sink
+	docker compose stop sink
 	docker compose exec postgres psql -U wiki -d wiki -c 'DROP TABLE IF EXISTS verdicts'
 	docker compose exec redpanda rpk group delete postgres-sink
-	docker compose start connect-sink
+	docker compose start sink
 
 # Local Data
 
