@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -17,8 +18,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed index.html
-var indexHTML string
+// The page, its stylesheet, and its script live under web/ and ship inside the binary.
+//
+//go:embed web
+var webFS embed.FS
 
 // Row is one verdict as the Connect sink stored it.
 type Row struct {
@@ -74,7 +77,7 @@ func NewServer(db *pgxpool.Pool, log *slog.Logger) *Server {
 		"since":  func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
 		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
-	return &Server{DB: db, Log: log, tmpl: template.Must(template.New("index").Funcs(funcs).Parse(indexHTML))}
+	return &Server{DB: db, Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -86,6 +89,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /fragments/stats", s.fragmentStats)
 	mux.HandleFunc("GET /fragments/rows", s.fragmentRows)
 	mux.HandleFunc("GET /{$}", s.index)
+	static, err := fs.Sub(webFS, "web/static")
+	if err != nil {
+		panic(err)
+	}
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
 	return mux
 }
 

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wikipedia edit patrol</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>Wikipedia edit patrol</h1>
+  <span id="stats">{{template "stats" .Stats}}</span>
+  <nav>
+    <a href="/" {{if eq .Filter.Route ""}}class="on"{{end}}>all</a>
+    <a href="/?route=flagged" {{if eq .Filter.Route "flagged"}}class="on"{{end}}>flagged</a>
+    <a href="/?route=review" {{if eq .Filter.Route "review"}}class="on"{{end}}>review</a>
+    <a href="/?route=ok" {{if eq .Filter.Route "ok"}}class="on"{{end}}>ok</a>
+    <a href="/api/verdicts{{if .Filter.Route}}?route={{.Filter.Route}}{{end}}">json</a>
+  </nav>
+</header>
+<main>
+{{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
+<p id="empty" class="muted" {{if .Rows}}hidden{{end}}>Nothing to show yet. Verdicts appear here as the reasoner works through the topic.</p>
+<table {{if not .Rows}}hidden{{end}}>
+  <thead><tr><th>when</th><th>edit</th><th>verdict</th><th>why</th><th>trace</th></tr></thead>
+  <tbody id="rows" data-after="{{.Cursor}}">{{template "rows" .Rows}}</tbody>
+</table>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
+
+{{define "stats"}}
+  <span class="stat">reviewed <b>{{.Total}}</b></span>
+  <span class="stat">flagged <b>{{index .ByRoute "flagged"}}</b></span>
+  <span class="stat">needs review <b>{{index .ByRoute "review"}}</b></span>
+  <span class="stat">ok <b>{{index .ByRoute "ok"}}</b></span>
+  <span class="stat">skipped <b>{{index .ByRoute "skipped"}}</b></span>
+{{end}}
+
+{{define "rows"}}
+  {{range .}}
+  <tr data-rev-id="{{.RevID}}" data-reasoned-at="{{cursor .ReasonedAt}}">
+    <td class="muted">{{since .ReasonedAt}}</td>
+    <td>
+      <a href="{{.DiffURL}}" target="_blank" rel="noopener">{{.Title}}</a><br>
+      <span class="muted">{{.Editor}}{{if .EditorIsTemp}} (logged out){{end}}, {{printf "%+d" .BytesDelta}} bytes, {{.Tier}}</span>
+      {{if .Comment}}<br><span class="muted">summary: {{.Comment}}</span>{{end}}
+    </td>
+    <td><span class="badge {{.Route}}">{{.Route}}</span><br>{{.Label}} <span class="muted">{{pct .Confidence}}</span></td>
+    <td>{{.Reason}}{{if .Evidence}}<br><code>{{.Evidence}}</code>{{if not .Grounded}} <span class="muted">(not found in diff)</span>{{end}}{{end}}</td>
+    <td class="muted">{{range .Steps}}{{.}}<br>{{end}}{{.Attempts}} calls, {{.Tokens}} tokens, {{.LatencyMS}} ms
+      {{if .Diff}}<details><summary>diff</summary><pre>{{.Diff}}</pre></details>{{end}}
+    </td>
+  </tr>
+  {{end}}
+{{end}}

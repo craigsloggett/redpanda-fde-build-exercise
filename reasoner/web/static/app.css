@@ -1,0 +1,20 @@
+body { font: 14px/1.4 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1b1f24; }
+header { background: #fff; border-bottom: 1px solid #d9dde3; padding: 12px 20px; display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; }
+#stats { display: contents; }
+.stat { color: #57606a; }
+.stat b { color: #1b1f24; }
+nav a { margin-right: 10px; }
+nav a.on { font-weight: bold; text-decoration: none; }
+main { padding: 12px 20px; }
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid #e6e8eb; }
+th { font-weight: 600; color: #57606a; font-size: 12px; }
+tr.new td { animation: arrive 3s ease-out; }
+@keyframes arrive { from { background: #fff3c4; } to { background: transparent; } }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
+.flagged { background: #c62828; } .review { background: #ef8f00; } .ok { background: #2e7d32; } .skipped { background: #78909c; }
+.muted { color: #57606a; font-size: 12px; }
+code { background: #f0f1f3; padding: 1px 4px; border-radius: 3px; font-size: 12px; white-space: pre-wrap; }
+details pre { max-height: 300px; overflow: auto; background: #f0f1f3; padding: 8px; font-size: 12px; }
+.warn { background: #fff4e5; border: 1px solid #f0c987; padding: 8px 12px; margin-bottom: 12px; }
