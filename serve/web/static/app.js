@@ -6,7 +6,10 @@ let after = rows.dataset.after;
 async function poll() {
   const query = new URLSearchParams(params);
   if (after) query.set("after", after);
-  const [rowsRes, statsRes] = await Promise.all([fetch("/fragments/rows?" + query), fetch("/fragments/stats")]);
+  const [rowsRes, statsRes] = await Promise.all([
+    fetch("/fragments/rows?" + query),
+    fetch("/fragments/stats"),
+  ]);
   if (!rowsRes.ok || !statsRes.ok) return;
   document.getElementById("stats").innerHTML = await statsRes.text();
   const fragment = document.createElement("template");
