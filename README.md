@@ -49,6 +49,10 @@ open http://localhost:8080
 > `make up` does the same detached, opens the page in your browser once every service is up, and follows the logs.
 > `make down` stops the stack.
 
+You should see the results (after a few edits process):
+
+![alt text](reference/image.png)
+
 Then open:
 - http://localhost:8080 for the verdicts page, which updates as verdicts land
 - http://localhost:8080/api/verdicts for JSON, filtered by `route`, `label`, `min_confidence`, and `limit`
@@ -72,7 +76,7 @@ flowchart TD
   gate -- yes --> triage[Triage prompt]
   triage --> reply[Model reply]
   reply --> parse{Usable JSON?}
-  parse -- "no, out of attempts" --> unusable([review as unreviewed])
+  parse -- "no, out of attempts" --> unusable([review as unreviewed,<br/>or route the first verdict if this was the challenge])
   parse -- yes --> ground{Quote in diff?}
   parse -- "no, attempts left" --> repair[Send the error back]
   repair --> reply
@@ -81,9 +85,10 @@ flowchart TD
   ground -- yes --> close{Unclear, below high, or control?}
   ground -- "no, first miss" --> requote[Ask for an exact quote]
   requote --> reply
-  close -- no --> route{Route}
+  close -- no --> mark[Record overturned<br/>if the outcome changed]
   close -- "yes, once" --> challenge[Challenge in a fresh conversation]
   challenge --> reply
+  mark --> route{Route}
   route -- otherwise --> review
   %% Longer links keep these labels clear of the otherwise label.
   route -- "damaging, at or above high" ---> flagged([flagged])
@@ -93,7 +98,7 @@ flowchart TD
   requote ~~~ challenge
 ```
 
-The model sees the title, the editor type, the summary, the byte delta, and the diff, and answers with a label, a confidence, a one-sentence reason, and a verbatim quote from the diff. The parser pulls the first JSON object that decodes out of whatever the model wrote, and the last attempt forces JSON mode. A quote counts as found when most of it appears in the diff as one unbroken run, since a small model mangles the odd character. The challenge must argue the opposite case before deciding. Its answer replaces the first unless it is unusable, in which case the first stands.
+The model sees the title, the editor type, the summary, the byte delta, and the diff, and answers with a label, a confidence, a one-sentence reason, and a verbatim quote from the diff. The parser pulls the first JSON object that decodes out of whatever the model wrote, and the last attempt forces JSON mode. A quote counts as found when most of it appears in the diff as one unbroken run, since a small model mangles the odd character. The challenge must argue the opposite case before deciding. Its answer replaces the first unless it is unusable, in which case the first stands. A challenge that changes the label or the route is recorded as `challenge:overturned`, and one in ten confident verdicts is challenged anyway as a control for that rate.
 
 Labels are `constructive`, `vandalism`, `spam`, `unsourced_claim`, and `unclear`. `unreviewed` marks records the loop gave up on.
 
