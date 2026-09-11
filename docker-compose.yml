@@ -1,0 +1,196 @@
+name: redpanda-fde-build-exercise
+
+services:
+  redpanda:
+    # yamllint disable-line rule:line-length
+    image: &redpanda-image docker.redpanda.com/redpandadata/redpanda:v26.2.2@sha256:468bd13a9f2bd24794cb7fddc867c767fb1008b9a07b297b89fde48c564d7d96
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - 19092:19092
+    volumes:
+      - redpanda:/var/lib/redpanda/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - rpk cluster health | grep -E 'Healthy:.+true'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: creates the topics and turns off the broker's usage reporting to Redpanda Data.
+  redpanda-init:
+    image: *redpanda-image
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        set -e
+        rpk cluster config set enable_metrics_reporter false -X admin.hosts=redpanda:9644
+        topics="${TOPIC_RAW:-wiki.edits.raw} ${TOPIC_ENRICHED:-wiki.edits.enriched}"
+        topics="$$topics ${TOPIC_VERDICTS:-wiki.edits.verdicts}"
+        for topic in $$topics; do
+          rpk topic describe "$$topic" -X brokers=redpanda:9092 >/dev/null 2>&1 \
+            || rpk topic create "$$topic" -X brokers=redpanda:9092
+        done
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  console:
+    # yamllint disable-line rule:line-length
+    image: docker.redpanda.com/redpandadata/console:v3.11.0@sha256:bf5ed3ee83e5b2dd6d1c1f1c8095ba252f384ce9354e7a3d2f780f0b4a486c09
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      ANALYTICS_ENABLED: 'false'
+    ports:
+      - 8081:8080
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  postgres:
+    # yamllint disable-line rule:line-length
+    image: postgres:16.15@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+    environment:
+      POSTGRES_USER: wiki
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki}
+      POSTGRES_DB: wiki
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U wiki -d wiki]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    # yamllint disable-line rule:line-length
+    image: &ollama-image ollama/ollama:0.34.0@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba
+    environment:
+      OLLAMA_KEEP_ALIVE: 1h
+      OLLAMA_CONTEXT_LENGTH: 8192
+    ports:
+      - 11434:11434
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: [CMD, ollama, ls]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: downloads the local model. Set OLLAMA_MODEL to empty in .env to skip it when using a hosted model.
+  ollama-pull:
+    image: *ollama-image
+    entrypoint: [/bin/sh, -c]
+    command:
+      - '[ -z "$$OLLAMA_MODEL" ] || ollama pull "$$OLLAMA_MODEL"'
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL-gemma4:e4b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  ingest:
+    # yamllint disable-line rule:line-length
+    image: &connect-image docker.redpanda.com/redpandadata/connect:4.108.0@sha256:7c6f0e53a2702fb7e3a7e8aff0f62e956025d51d131ac3631288b6eb143f22c2
+    command: [--disable-telemetry, run, /ingest/ingest.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_RAW: ${TOPIC_RAW:-wiki.edits.raw}
+      USER_AGENT: >-
+        ${USER_AGENT:-redpanda-fde-build-exercise/0.1
+        (https://github.com/craigsloggett/redpanda-fde-build-exercise) redpanda-connect/4.108.0}
+    volumes:
+      - ./ingest:/ingest:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  transform:
+    image: *connect-image
+    command: [--disable-telemetry, run, /transform/transform.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_RAW: ${TOPIC_RAW:-wiki.edits.raw}
+      TOPIC_ENRICHED: ${TOPIC_ENRICHED:-wiki.edits.enriched}
+      USER_AGENT: >-
+        ${USER_AGENT:-redpanda-fde-build-exercise/0.1
+        (https://github.com/craigsloggett/redpanda-fde-build-exercise) redpanda-connect/4.108.0}
+      SAMPLE_PERMILLE: ${SAMPLE_PERMILLE:-50}
+      DIFF_MAX_CHARS: ${DIFF_MAX_CHARS:-4000}
+    volumes:
+      - ./transform:/transform:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  reason:
+    build:
+      context: .
+      target: reason
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_IN: ${TOPIC_ENRICHED:-wiki.edits.enriched}
+      TOPIC_OUT: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HIGH_CONFIDENCE: ${HIGH_CONFIDENCE:-0.8}
+      LOW_CONFIDENCE: ${LOW_CONFIDENCE:-0.5}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      CHALLENGE_PERMILLE: ${CHALLENGE_PERMILLE:-100}
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+      ollama-pull:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sink:
+    image: *connect-image
+    command: [--disable-telemetry, run, /serve/sink.yaml]
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      TOPIC_VERDICTS: ${TOPIC_VERDICTS:-wiki.edits.verdicts}
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
+    volumes:
+      - ./serve:/serve:ro
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  serve:
+    build:
+      context: .
+      target: serve
+    environment:
+      POSTGRES_DSN: postgres://wiki:${POSTGRES_PASSWORD:-wiki}@postgres:5432/wiki?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - 8080:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redpanda:
+  postgres:
+  ollama:

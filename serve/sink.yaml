@@ -1,0 +1,79 @@
+input:
+  label: verdicts_topic
+  redpanda:
+    seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
+    topics: ['${TOPIC_VERDICTS:wiki.edits.verdicts}']
+    consumer_group: ${SINK_CONSUMER_GROUP:postgres-sink}
+    start_offset: earliest
+
+output:
+  label: postgres_verdicts
+  sql_insert:
+    driver: postgres
+    dsn: ${POSTGRES_DSN:postgres://wiki:wiki@postgres:5432/wiki?sslmode=disable}
+    table: verdicts
+    columns:
+      - rev_id
+      - rev_parent_id
+      - title
+      - editor
+      - editor_is_temp
+      - comment
+      - bytes_delta
+      - event_ts
+      - diff_url
+      - tier
+      - diff
+      - diff_truncated
+      - label
+      - confidence
+      - reason
+      - evidence
+      - grounded
+      - route
+      - steps
+      - model
+      - attempts
+      - tokens
+      - latency_ms
+      - reasoned_at
+    args_mapping: |
+      root = [
+        this.rev_id,
+        this.rev_parent_id,
+        this.title,
+        this.user,
+        this.user_is_temp,
+        this.comment.or(""),
+        this.bytes_delta,
+        this.event_ts,
+        this.diff_url,
+        this.tier,
+        this.diff.or(""),
+        this.diff_truncated.or(false),
+        this.label,
+        this.confidence,
+        this.reason.or(""),
+        this.evidence.or(""),
+        this.grounded.or(false),
+        this.route,
+        this.steps.or([]).format_json().string(),
+        this.model,
+        this.attempts,
+        this.tokens.or(0),
+        this.latency_ms,
+        this.reasoned_at,
+      ]
+    suffix: |
+      ON CONFLICT (rev_id) DO UPDATE SET
+        diff = EXCLUDED.diff, diff_truncated = EXCLUDED.diff_truncated,
+        label = EXCLUDED.label, confidence = EXCLUDED.confidence, reason = EXCLUDED.reason,
+        evidence = EXCLUDED.evidence, grounded = EXCLUDED.grounded, route = EXCLUDED.route, steps = EXCLUDED.steps,
+        model = EXCLUDED.model, attempts = EXCLUDED.attempts, tokens = EXCLUDED.tokens,
+        latency_ms = EXCLUDED.latency_ms, reasoned_at = EXCLUDED.reasoned_at
+    init_files:
+      - /serve/schema.sql
+    # One row per statement: Postgres rejects a multi-row upsert that hits the same revision twice,
+    # and the sink would retry that batch forever.
+    batching:
+      count: 1

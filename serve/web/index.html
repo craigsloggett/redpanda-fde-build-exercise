@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wikipedia Edit Patrol</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Wikipedia Edit Patrol</h1>
+    <p>Live edits to English Wikipedia, each judged from its diff by a local model. Damaging edits are flagged and close calls wait for a human.</p>
+  </div>
+  <a href="/api/verdicts{{if .Filter.Route}}?route={{.Filter.Route}}{{end}}">JSON</a>
+</header>
+<main>
+{{if .Error}}<div class="warn">No verdicts yet. {{.Error}}</div>{{end}}
+<nav id="stats">{{template "stats" .}}</nav>
+<p id="empty" class="muted" {{if .Rows}}hidden{{end}}>Nothing to show yet. Verdicts appear here as the reasoner works through the topic.</p>
+<table {{if not .Rows}}hidden{{end}}>
+  <colgroup><col class="when"><col class="edit"><col class="verdict"><col class="why"><col class="trace"></colgroup>
+  <thead><tr><th>When</th><th>Edit</th><th>Verdict</th><th>Why</th><th>Trace</th></tr></thead>
+  <tbody id="rows" data-after="{{.Cursor}}">{{template "rows" .Rows}}</tbody>
+</table>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
+
+{{define "stats"}}
+  <a class="tile{{if not .Filter.Route}} on{{end}}" href="/"><b>{{.Stats.Total}}</b>Reviewed</a>
+  <a class="tile flagged{{if eq .Filter.Route "flagged"}} on{{end}}" href="/?route=flagged"><b>{{index .Stats.ByRoute "flagged"}}</b>Flagged</a>
+  <a class="tile review{{if eq .Filter.Route "review"}} on{{end}}" href="/?route=review"><b>{{index .Stats.ByRoute "review"}}</b>Needs Review</a>
+  <a class="tile ok{{if eq .Filter.Route "ok"}} on{{end}}" href="/?route=ok"><b>{{index .Stats.ByRoute "ok"}}</b>OK</a>
+  <a class="tile skipped{{if eq .Filter.Route "skipped"}} on{{end}}" href="/?route=skipped"><b>{{index .Stats.ByRoute "skipped"}}</b>Skipped</a>
+{{end}}
+
+{{define "rows"}}
+  {{range .}}
+  <tr data-rev-id="{{.RevID}}" data-reasoned-at="{{cursor .ReasonedAt}}">
+    <td class="muted">{{since .ReasonedAt}}</td>
+    <td>
+      <a href="{{.DiffURL}}" target="_blank" rel="noopener">{{.Title}}</a><br>
+      <span class="muted">{{.Editor}}{{if .EditorIsTemp}} (logged out){{end}}, {{printf "%+d" .BytesDelta}} bytes, {{.Tier}}</span>
+      {{if .Comment}}<br><span class="muted">summary: {{.Comment}}</span>{{end}}
+    </td>
+    <td><span class="badge {{.Route}}">{{.Route}}</span><br>{{.Label}} <span class="muted">{{pct .Confidence}}</span></td>
+    <td>{{.Reason}}{{if .Evidence}}<br><code>{{.Evidence}}</code>{{if not .Grounded}} <span class="muted">(not found in diff)</span>{{end}}{{end}}</td>
+    <td class="muted">{{range .Steps}}{{.}}<br>{{end}}{{.Attempts}} calls, {{.Tokens}} tokens, {{.LatencyMS}} ms</td>
+  </tr>
+  {{if .Diff}}
+  <tr class="diff" data-rev-id="{{.RevID}}">
+    <td colspan="5"><details><summary>diff</summary><pre>{{.Diff}}</pre></details></td>
+  </tr>
+  {{end}}
+  {{end}}
+{{end}}

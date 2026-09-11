@@ -1,0 +1,110 @@
+input:
+  label: raw_topic
+  redpanda:
+    seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
+    topics: ['${TOPIC_RAW:wiki.edits.raw}']
+    consumer_group: ${TRANSFORM_CONSUMER_GROUP:transform}
+    start_offset: earliest
+
+pipeline:
+  processors:
+    - label: drop_repeats
+      dedupe:
+        cache: seen_revisions
+        key: ${! json("revision.new").int64() }
+        drop_on_err: false
+
+    - label: drop_reverts
+      mapping: |
+        root = if this.comment.or("").re_match("(?i)^(undid revision|undo|revert|rv\\b|rvv|restored revision)") {
+          deleted()
+        } else {
+          this
+        }
+
+    # Multiplying by an odd constant coprime with 1000 permutes the residues, so consecutive ids scatter
+    # across the sample instead of the first fifty of every thousand being taken in a burst.
+    - label: tier_and_sample
+      mapping: |
+        let scatter = 761
+        let delta = this.length.new - this.length.old
+        let big = $delta <= -${PRIORITY_REMOVAL_BYTES:500} || $delta >= ${PRIORITY_ADDITION_BYTES:2000}
+        let priority = this.user.has_prefix("~") || this.comment.or("") == "" || $big
+        root = if $priority {
+          this.merge({"tier": "priority"})
+        } else if (this.revision.new.int64() * $scatter) % 1000 < ${SAMPLE_PERMILLE:50} {
+          this.merge({"tier": "sampled"})
+        } else {
+          deleted()
+        }
+
+    - label: project
+      mapping: |
+        let rev_new = this.revision.new.int64().string()
+        let rev_old = this.revision.old.int64().string()
+        root.rev_id = this.revision.new.int64()
+        root.rev_parent_id = this.revision.old.int64()
+        root.rc_id = this.id.int64()
+        root.title = this.title
+        root.user = this.user
+        root.user_is_temp = this.user.has_prefix("~")
+        root.minor = this.minor
+        root.comment = this.comment.or("")
+        root.bytes_old = this.length.old.int64()
+        root.bytes_new = this.length.new.int64()
+        root.bytes_delta = (this.length.new - this.length.old).int64()
+        root.event_ts = this.timestamp.ts_format("2006-01-02T15:04:05Z", "UTC")
+        root.server_url = this.server_url
+        root.diff_url = this.server_url + "/w/index.php?diff=" + $rev_new + "&oldid=" + $rev_old
+        root.tier = this.tier
+        meta rev_id = $rev_new
+        let compare_api = "/w/api.php?action=compare&difftype=unified&prop=diff|diffsize"
+        let compare_format = "&format=json&formatversion=2"
+        let compare_revs = "&fromrev=" + $rev_old + "&torev=" + $rev_new
+        meta compare_url = this.server_url + $compare_api + $compare_format + $compare_revs
+
+    - label: fetch_diff
+      branch:
+        request_map: root = ""
+        processors:
+          - http:
+              url: ${! meta("compare_url") }
+              verb: GET
+              headers:
+                User-Agent: ${USER_AGENT:redpanda-fde-build-exercise/0.0 (github.com/craigsloggett; USER_AGENT unset)}
+              rate_limit: wiki_api
+              timeout: 15s
+              retries: 3
+              retry_period: 1s
+              max_retry_backoff: 30s
+        result_map: |
+          let text = this.compare.body.or("").re_replace_all("<[^>]+>", "").unescape_html().trim()
+          let max = ${DIFF_MAX_CHARS:4000}
+          root.diff = if $text.length() > $max { $text.slice(0, $max) } else { $text }
+          root.diff_truncated = $text.length() > $max
+          root.diff_size = this.compare.diffsize.or(0)
+          root.enrich_error = if this.exists("error") { this.error.info.or(this.error.code) } else { deleted() }
+
+    - label: record_fetch_failure
+      catch:
+        - mapping: |
+            root = this
+            root.enrich_error = error()
+
+output:
+  label: enriched_topic
+  redpanda:
+    seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
+    topic: ${TOPIC_ENRICHED:wiki.edits.enriched}
+    key: ${! meta("rev_id") }
+
+cache_resources:
+  - label: seen_revisions
+    memory:
+      default_ttl: 1h
+
+rate_limit_resources:
+  - label: wiki_api
+    local:
+      count: ${WIKI_API_REQUESTS_PER_SECOND:5}
+      interval: 1s

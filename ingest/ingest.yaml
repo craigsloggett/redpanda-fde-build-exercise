@@ -1,0 +1,42 @@
+input:
+  label: wikimedia_recentchange
+  http_client:
+    url: ${WIKIMEDIA_STREAM_URL:https://stream.wikimedia.org/v2/stream/recentchange}
+    verb: GET
+    headers:
+      User-Agent: ${USER_AGENT:redpanda-fde-build-exercise/0.0 (github.com/craigsloggett; USER_AGENT unset)}
+      Accept: text/event-stream
+    retries: 10
+    retry_period: 1s
+    max_retry_backoff: 60s
+    stream:
+      enabled: true
+      reconnect: true
+      scanner:
+        lines: {}
+
+pipeline:
+  processors:
+    - label: sse_data_lines_only
+      mapping: |
+        root = if content().string().has_prefix("data: ") {
+          content().string().trim_prefix("data: ").parse_json().catch(deleted())
+        } else {
+          deleted()
+        }
+
+    - label: keep_human_article_edits
+      mapping: |
+        let is_article_edit = this.wiki == "${WIKI:enwiki}" && this.type == "edit" && this.namespace == 0
+        root = if $is_article_edit && this.bot == false && this.revision.old != null {
+          this
+        } else {
+          deleted()
+        }
+
+output:
+  label: raw_topic
+  redpanda:
+    seed_brokers: ['${REDPANDA_BROKERS:redpanda:9092}']
+    topic: ${TOPIC_RAW:wiki.edits.raw}
+    key: ${! json("revision.new").int64() }
