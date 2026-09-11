@@ -72,11 +72,41 @@ type Server struct {
 func NewServer(pool *pgxpool.Pool, log *slog.Logger) *Server {
 	funcs := template.FuncMap{
 		"pct":    func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
-		"since":  func(t time.Time) string { return time.Since(t).Round(time.Second).String() + " ago" },
+		"since":  func(t time.Time) string { return since(time.Since(t)) },
 		"cursor": func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	}
 
 	return &Server{DB: pool, Events: newBroker(pool, log), Log: log, tmpl: template.Must(template.New("index.html").Funcs(funcs).ParseFS(webFS, "web/index.html"))}
+}
+
+const day = 24 * time.Hour
+
+func since(age time.Duration) string {
+	age = age.Round(time.Second)
+
+	switch {
+	case age <= 0:
+		return "now"
+	case age < time.Minute:
+		return ago(age, time.Second, "second")
+	case age < time.Hour:
+		return ago(age, time.Minute, "minute")
+	case age < day:
+		return ago(age, time.Hour, "hour")
+	case age < 2*day:
+		return "yesterday"
+	default:
+		return ago(age, day, "day")
+	}
+}
+
+func ago(age, unit time.Duration, name string) string {
+	count := int64(age / unit)
+	if count == 1 {
+		return "1 " + name + " ago"
+	}
+
+	return fmt.Sprintf("%d %ss ago", count, name)
 }
 
 func (s *Server) Handler() http.Handler {

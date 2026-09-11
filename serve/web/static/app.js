@@ -1,4 +1,3 @@
-// New verdicts are inserted above the existing rows, so scrolling and open diffs are left alone.
 const rows = document.getElementById("rows");
 const params = new URLSearchParams(location.search);
 let after = rows.dataset.after;
@@ -17,7 +16,6 @@ async function poll() {
   const fresh = fragment.content.querySelectorAll("tr");
   if (fresh.length === 0) return;
   for (const tr of fresh) {
-    // A verdict is a row plus an optional diff row. A replayed revision replaces both, matching the upsert.
     const selector = `tr[data-rev-id="${tr.dataset.revId}"]`;
     for (const old of rows.querySelectorAll(selector)) old.remove();
     tr.classList.add("new");
@@ -28,7 +26,6 @@ async function poll() {
   rows.parentElement.hidden = false;
 }
 
-// The sink writes in batches and Postgres announces every row, so a burst collapses into one fetch.
 let pending = null;
 function refresh() {
   if (pending) return;
@@ -39,6 +36,23 @@ function refresh() {
 }
 
 const events = new EventSource("/events");
-// A reconnect may have missed rows, and the first open costs one harmless fetch.
 events.onopen = refresh;
 events.addEventListener("verdict", refresh);
+
+const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+function since(iso) {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return relative.format(-s, "second");
+  if (s < 3600) return relative.format(-Math.floor(s / 60), "minute");
+  if (s < 86400) return relative.format(-Math.floor(s / 3600), "hour");
+  return relative.format(-Math.floor(s / 86400), "day");
+}
+
+setInterval(() => {
+  for (const tr of rows.querySelectorAll("tr[data-reasoned-at]")) {
+    const cell = tr.cells[0];
+    const text = since(tr.dataset.reasonedAt);
+    if (cell.textContent !== text) cell.textContent = text;
+  }
+}, 1000);
