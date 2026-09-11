@@ -7,14 +7,22 @@ Connect reads the Wikimedia recent-changes firehose, keeps human edits to Englis
 ```mermaid
 flowchart LR
   WM["Wikimedia<br/>recent changes"] --> IN["Connect<br/>ingest"]
-  IN --> RAW["Redpanda<br/>wiki.edits.raw"]
-  RAW --> TR["Connect<br/>transform + diff fetch"]
-  TR --> EN["Redpanda<br/>wiki.edits.enriched"]
+  subgraph RP["Redpanda"]
+    RAW["wiki.edits.raw"]
+    EN["wiki.edits.enriched"]
+    VD["wiki.edits.verdicts"]
+  end
+  IN --> RAW
+  RAW --> TR["Connect<br/>transform"]
+  TR <-.-> MW["MediaWiki<br/>compare API"]
+  TR --> EN
   EN --> RS["Reason<br/>triage → ground → challenge"]
-  RS --> VD["Redpanda<br/>wiki.edits.verdicts"]
+  RS <-.-> OL["Ollama<br/>gemma4:e4b"]
+  RS --> VD
   VD --> SK["Connect<br/>sink"]
-  SK --> PG[("Postgres")]
-  PG --> SV["Serve"]
+  SK --> PG[("Postgres<br/>verdicts")]
+  PG -- "rows + NOTIFY" --> SV["Serve"]
+  SV -- "HTML + SSE" --> BR["Browser<br/>localhost:8080"]
 ```
 
 ## Getting Started
