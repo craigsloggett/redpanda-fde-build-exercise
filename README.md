@@ -38,7 +38,15 @@ You need Docker with Compose and about 12 GB of memory available to containers (
 The first start pulls `gemma4:e4b` into the Ollama volume, which takes a few minutes. `reason` waits until it is there.
 
 ```sh
-docker compose up --build
+colima start --cpu 8 --memory 12 --disk 60  # If you use `colima` on macOS to run the Docker VM.
+```
+
+```sh
+docker compose up --build --detach
+```
+
+```sh
+open http://localhost:8080
 ```
 
 > [!TIP]
