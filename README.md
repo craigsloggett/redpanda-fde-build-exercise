@@ -47,26 +47,31 @@ On CPU the model takes tens of seconds per edit, so the first verdicts appear a 
 
 ```mermaid
 flowchart TD
+  %% Edge order per node drives the Dagre layout: outcome, main path, retry.
   edit[Enriched edit] --> gate{Diff fetched?}
   gate -- no --> skipped([skipped])
   gate -- yes --> triage[Triage prompt]
   triage --> reply[Model reply]
   reply --> parse{Usable JSON?}
-  parse -- "no, attempts left" --> repair[Send the error back]
-  repair --> reply
   parse -- "no, out of attempts" --> unusable([review as unreviewed])
   parse -- yes --> ground{Quote in diff?}
-  ground -- "no, first miss" --> requote[Ask for an exact quote]
-  requote --> reply
+  parse -- "no, attempts left" --> repair[Send the error back]
+  repair --> reply
   ground -- "no, again" --> cap[Cap confidence at low]
   cap --> review([review])
   ground -- yes --> close{Unclear or below high?}
+  ground -- "no, first miss" --> requote[Ask for an exact quote]
+  requote --> reply
+  close -- no --> route{Route}
   close -- "yes, once" --> challenge[Challenge in a fresh conversation]
   challenge --> reply
-  close -- no --> route{Route}
-  route -- "damaging, at or above high" --> flagged([flagged])
-  route -- "constructive, at or above low" --> ok([ok])
   route -- otherwise --> review
+  %% Longer links keep these labels clear of the otherwise label.
+  route -- "damaging, at or above high" ---> flagged([flagged])
+  route -- "constructive, at or above low" ---> ok([ok])
+  %% Invisible links stack the retries in one column so the return arrows never cross.
+  repair ~~~ requote
+  requote ~~~ challenge
 ```
 
 The model sees the title, the editor type, the summary, the byte delta, and the diff, and answers with a label, a confidence, a one-sentence reason, and a verbatim quote from the diff. The parser pulls the first JSON object that decodes out of whatever the model wrote, and the last attempt forces JSON mode. A quote counts as found when most of it appears in the diff as one unbroken run, since a small model mangles the odd character. The challenge must argue the opposite case before deciding. Its answer replaces the first unless it is unusable, in which case the first stands.
