@@ -78,7 +78,7 @@ flowchart TD
   repair --> reply
   ground -- "no, again" --> cap[Cap confidence at low]
   cap --> review([review])
-  ground -- yes --> close{Unclear or below high?}
+  ground -- yes --> close{Unclear, below high, or control?}
   ground -- "no, first miss" --> requote[Ask for an exact quote]
   requote --> reply
   close -- no --> route{Route}
@@ -99,29 +99,42 @@ Labels are `constructive`, `vandalism`, `spam`, `unsourced_claim`, and `unclear`
 
 Reason commits an offset only after the verdict is on `wiki.edits.verdicts`. When it cannot reach the model or the broker it retries with backoff rather than recording a verdict ([`reason/consumer.go`](reason/consumer.go)).
 
-**Prompts** in [`reason/prompt.go`](reason/prompt.go) are the system prompt that defines the labels and the JSON shape, the repair prompt for an unusable reply, the grounding prompt for a quote that is not in the diff, and the challenge prompt. Edit and rebuild `reason` to change them.
+Prompts in [`reason/prompt.go`](reason/prompt.go) are the system prompt that defines the labels and the JSON shape, the repair prompt for an unusable reply, the grounding prompt for a quote that is not in the diff, and the challenge prompt. Edit and rebuild `reason` to change them.
 
-**Pipelines** are the three Connect configs. Everything that is not reasoning lives here.
+Pipelines are the three Connect configs. Everything that is not reasoning lives here.
 - [`ingest/ingest.yaml`](ingest/ingest.yaml) reads the SSE firehose, keeps human edits to English Wikipedia articles, and writes them to `wiki.edits.raw`.
 - [`transform/transform.yaml`](transform/transform.yaml) drops repeats and reverts, passes priority edits and a revision-id sample of the rest, fetches the unified diff from the MediaWiki compare API at 5 requests per second, and writes `wiki.edits.enriched`. A failed fetch is recorded on the message, not dropped, so the gate can skip it.
 - [`serve/sink.yaml`](serve/sink.yaml) upserts verdicts into Postgres by revision id, one statement per verdict.
 
-**Schema** in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads, plus the trigger that tells Serve about each upsert. The sink applies it on start.
+Schema in [`serve/schema.sql`](serve/schema.sql) is the `verdicts` table the sink upserts and Serve reads, plus the trigger that tells Serve about each upsert. The sink applies it on start.
 
-**Env** vars are optional and go in `.env`:
+Environment variables are optional and live in a `.env` file:
 
-| Variable          | Default | Description                                                                                                    |
-| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| `SAMPLE_PERMILLE` | `50`    | Non-priority edits that reach the model, per thousand, picked by revision id so a replay makes the same choice |
-| `DIFF_MAX_CHARS`  | `4000`  | Longest diff sent to the model, in characters                                                                  |
-| `HIGH_CONFIDENCE` | `0.8`   | Confidence at which a damaging verdict is flagged without a challenge                                          |
-| `LOW_CONFIDENCE`  | `0.5`   | Confidence below which a constructive verdict goes to review                                                   |
-| `MAX_ATTEMPTS`    | `3`     | Model calls per stage before the loop gives up                                                                 |
-| `LOG_LEVEL`       | `info`  | `debug` logs every unusable model reply                                                                        |
+| Variable             | Default | Description                                                                                                                      |
+| -------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `SAMPLE_PERMILLE`    | `50`    | Non-priority edits that reach the model, per thousand, picked by revision id so a replay makes the same choice                   |
+| `DIFF_MAX_CHARS`     | `4000`  | Longest diff sent to the model, in characters                                                                                    |
+| `HIGH_CONFIDENCE`    | `0.8`   | Confidence at which a damaging verdict is flagged and doubt no longer triggers a challenge                                       |
+| `LOW_CONFIDENCE`     | `0.5`   | Confidence below which a constructive verdict goes to review                                                                     |
+| `MAX_ATTEMPTS`       | `3`     | Model calls per stage before the loop gives up                                                                                   |
+| `CHALLENGE_PERMILLE` | `100`   | Confident verdicts challenged anyway, per thousand, picked by a hash of the revision id so the overturn rate has a control group |
+| `LOG_LEVEL`          | `info`  | `debug` logs every unusable model reply                                                                                          |
 
-**Testing** is `make test`. [`reason/reason_test.go`](reason/reason_test.go) drives the loop with a scripted model: dirty output, repairs, hallucinated evidence, the challenge pass, the exhausted budget, and the transport failure that must not produce a verdict. [`reason/parse_test.go`](reason/parse_test.go) covers the parser on its own. CI runs the same tests plus lint and a vulnerability check.
+Testing is `make test`. [`reason/reason_test.go`](reason/reason_test.go) drives the loop with a scripted model: dirty output, repairs, hallucinated evidence, the challenge pass, the exhausted budget, and the transport failure that must not produce a verdict. [`reason/parse_test.go`](reason/parse_test.go) covers the parser on its own. CI runs the same tests plus lint and a vulnerability check.
 
-**Rebuild the table** with `make reset-sink`. It drops `verdicts`, deletes the sink's consumer group, and restarts the sink so it replays the topic from the beginning.
+Rebuild the table with `make reset-sink`. It drops `verdicts`, deletes the sink's consumer group, and restarts the sink so it replays the topic from the beginning.
+
+### Closing the Eval-set Gap
+
+The eval set is a gap I call out in the production notes below, and I would close it first. The labels needed to close the gap are already in the feed.
+
+When a patroller reverts an edit, MediaWiki tags the reverted revision `mw-reverted`, and that tag change is an event on the same EventStreams service the ingest reads (`mediawiki.revision-tags-change`, which carries the `rev_id`). A fourth Connect config that keeps those events and writes a `reverted_at` onto the verdicts row by `rev_id` turns the table into the eval set without anyone labeling anything.
+
+Reverted within a couple of days is the proxy for damaging and survived is the proxy for fine, which is the proxy the revert-risk models are trained on, noisy in both directions. The two tiers then answer different questions:
+- The priority tier is enriched for damage, so it gives recall on the edits that matter.
+- The sampled tier is the base rate, so it gives the false-positive rate on ordinary edits, and without it precision would look better than it is.
+
+From there the numbers in the tradeoffs stop being opinions. Precision and recall of `flagged` are two queries, the high and low confidence thresholds become a curve instead of two env vars, and the rows tagged `challenge:overturned` can be checked against the revert to see whether the second call was right when it changed the outcome. The same rows, diff and label together, are the training set for the classifier that would take the bulk.
 
 ## Tradeoffs
 
@@ -131,17 +144,17 @@ The verdicts topic is the system of record. Postgres is a projection of it, and 
 
 The alternative is what most services do first: Reason writes the row itself. That is fewer moving parts, and the page sees a verdict as soon as it is written. The problem is that Reason would then commit twice, once to the topic and once to Postgres, with no transaction across the two. The first failed write leaves the topic and the table disagreeing, and neither is the record any more.
 
-With the topic as the record, a second consumer is a second Connect configuration, and `make reset-sink` rebuilds the table from the log. Replaying the topic surfaced one constraint on the sink. Postgres rejects a multi-row upsert that touches the same key twice, and Connect retries a failed batch indefinitely, so the sink writes one row per statement. That costs nothing here. The transform fetches diffs at five a second, so live traffic is at most five verdicts a second, and a replay is bounded by Postgres, which handles thousands of single-row upserts a second.
+With the topic as the record, a second consumer is a second Connect configuration, and `make reset-sink` rebuilds the table from the log. Replaying the topic surfaced one constraint on the sink. Postgres rejects a multi-row upsert that touches the same key twice, and Connect retries a failed batch indefinitely, so the sink writes one row per statement. That costs nothing here. The transform fetches diffs at five a second and the model is slower than that, so live traffic never approaches what Postgres can take.
 
-I would move the write into Reason if it ever had to be transactional with other application state (a reviewer claiming an edit, or a decision the next request must see). A sink connector cannot give that guarantee.
+I would move the write into Reason if it ever had to be transactional with other application state (a reviewer claiming an edit, or a decision the next request must see) since a sink connector cannot give that guarantee.
 
 ### One Classification Call vs the Multi-Step Loop
 
-A key design decision I made early is that the model cannot flag an edit, or clear one, on evidence that is not in the diff. A verdict with an invented quote still reaches the topic, with its confidence capped and its route set to review. The worst a fabricated quote can do is cost a reviewer a look. Reason triages the edit, repairs malformed output with JSON mode reserved for the last attempt, and checks that the quoted evidence appears in the diff. When the quote is found, a challenge pass runs only if the label is `unclear` or the confidence is below the high threshold.
+A key design decision I made early is that the model cannot flag an edit, or clear one, on evidence that is not in the diff. A verdict with an invented quote still reaches the topic, with its confidence capped and its route set to review. The worst a fabricated quote can do is cost a reviewer a look. Reason triages the edit, repairs malformed output with JSON mode reserved for the last attempt, and checks that the quoted evidence appears in the diff. When the quote is found, a challenge pass runs if the label is `unclear` or the confidence is below the high threshold. One in ten confident verdicts is challenged as well, picked by a hash of the revision id, so the overturn rate has a control group even when the model never reports doubt.
 
-The alternative is one call: parse what the model says and route on its confidence. This is half the code, half the tokens on the edits that would otherwise need two calls, and latency that is easier to reason about. What stopped me is that a small local model produces confident labels with evidence that is not in the diff, and a one-call system would flag those on confidence alone. The grounding check sends a fabricated quote to `review`, never to `flagged`. The [`reason/reason_test.go`](reason/reason_test.go) case with the invented quote shows this (the model is retried once, then distrusted).
+The alternative is one call: parse what the model says and route on its confidence. This is half the code, half the tokens on the edits that would otherwise need two calls, and latency that is easier to reason about. What stopped me is that a small local model produces confident labels with evidence that is not in the diff, and a one-call system would flag those on confidence alone. The [`reason/reason_test.go`](reason/reason_test.go) case with the invented quote shows this (the model is retried once, then distrusted).
 
-The loop records enough to tell me when to remove it. Every row stores `steps`, and the challenge adds `challenge:overturned` whenever it changes the label or the route the triage pass would have given, so how often the second call changes the outcome is one query against the table.
+The loop records enough to tell me when to remove it. Every row stores `steps`. A control-slice challenge adds `challenge:control`, and any challenge adds `challenge:overturned` when it changes the label or the route the triage pass would have given, so how often the second call changes the outcome is one query against the table, and the control rows keep that rate defined even when the model never doubts. On gemma4 it needed that: every grounded verdict in the first hundred scored 0.9 or higher, and two thirds scored 1.0, so the doubt gate never fired and the challenge had never run.
 
 Cost is also bounded one layer up, in the transform pipeline, before anything reaches the model. Priority edits (large byte changes, blank summaries, temporary accounts) are never sampled out. The remainder is sampled at a tunable rate, deterministically by `rev_id` and spread evenly in time. This sample is a cost control and it is the benign control group. It is the only view of how the model behaves on ordinary edits, and therefore the only read on false positives among them.
 
@@ -149,17 +162,15 @@ I would drop the second call when that overturn rate approaches zero on a strong
 
 ## Surprises and Production Notes
 
-Surprisingly, the Wikipedia recent-changes feed carries no diff content, so the transform pipeline has to fetch every diff itself from the compare API. Doing that politely meant following Wikimedia's [User-Agent](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) and [rate](https://www.mediawiki.org/wiki/API:Etiquette) rules.
+The Wikipedia recent-changes feed carries no diff content, so the transform pipeline has to fetch every diff itself from the compare API. Doing that politely meant following Wikimedia's [User-Agent](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) and [rate](https://www.mediawiki.org/wiki/API:Etiquette) rules.
 
 In production, the gaps in order of how much they would hurt:
-1. There is no eval set, so I can say the machinery is sound but not what its precision or recall is. The sampled benign stream is the raw material that set would be built from. It also closes the loop on the tradeoff above: the overturn rate says when the challenge has stopped changing outcomes, and only an eval set says whether it was right when it did.
+1. There is no eval set, so I can say the machinery is sound but not what its precision or recall is. The sampled (non-priority) stream is the raw material that set would be built from. It also closes the loop on the tradeoff above: the overturn rate says when the challenge has stopped changing outcomes, and only an eval set says whether it was right when it did.
 2. Ingest does not send `Last-Event-ID` when it reconnects, so a restart or a dropped connection loses events that [EventStreams](https://wikitech.wikimedia.org/wiki/Event_Platform/EventStreams) could have replayed (it keeps at least a week of history).
 3. Topics have one partition and the reasoner handles one edit at a time, so against the unfiltered firehose the backlog grows without bound. The fix is more partitions and reasoner replicas, and only after that does sink batching matter.
 4. Any 4xx from the model is retried as if it were a transport failure, which stalls the partition.
 5. Dedupe is an in-process cache that a restart wipes. Every topic is keyed on revision id, so both copies of an edit reach the same consumer and replicas only miss a duplicate across a rebalance. The sink upsert is the backstop either way.
 
-The eval set is the gap I would close first, and the labels are already in the feed. When a patroller reverts an edit, MediaWiki tags the reverted revision `mw-reverted`, and that tag change is an event on the same EventStreams service the ingest reads (`mediawiki.revision-tags-change`, which carries the `rev_id`). A fourth Connect config that keeps those events and writes a `reverted_at` onto the verdicts row by `rev_id` turns the table into the eval set without anyone labeling anything. Reverted within a couple of days is the proxy for damaging and survived is the proxy for fine, which is the proxy the revert-risk models are trained on, noisy in both directions. The two tiers then answer different questions. The priority tier is enriched for damage, so it gives recall on the edits that matter. The sampled tier is the base rate, so it gives the false-positive rate on ordinary edits, and without it precision would look better than it is. From there the numbers in the tradeoffs stop being opinions. Precision and recall of `flagged` are two queries, the high and low confidence thresholds become a curve instead of two env vars, and the rows tagged `challenge:overturned` can be checked against the revert to see whether the second call was right when it changed the outcome. The same rows, diff and label together, are the training set for the classifier that would take the bulk.
-
 ## Why This Matters
 
-At a bank, more transactions and account changes flow through every day than the fraud and risk teams could review by hand. This system looks at everything that trips a risk rule and at a deliberate slice of the rest, judges each one from what actually changed, and puts the ones that look suspicious into an analyst's queue in real time, with a plain-language reason and the specific evidence attached. It cannot flag anything without that evidence: when the model quotes something that is not in the record, the case goes to a human, never to the flagged queue. The analyst spends their time on the cases most likely to be real instead of chasing random alerts or waiting for the overnight batch report. The slice of ordinary activity is there on purpose. It is the only way to measure how often the system bothers good customers. When it is wrong the cost is contained and visible (a few minutes on a false positive, or a risky transaction that clears before someone catches it). When there is no system like this the cost is worse and hidden. Either the team drowns in alerts and misses the real fraud, or tightens the rules and blocks good customers. Here it judges Wikipedia edits as a public stand-in, but the shape is the same as a transaction-monitoring or access-review queue.
+At a bank, more transactions and account changes flow through every day than the fraud and risk teams could review by hand. This system looks at every one, judges how risky it is from the actual activity, and puts the ones that look suspicious at the top of an analyst's queue, in real-time, with a plain-language reason and the specific evidence attached. This enabled the analyst to spend their time on the cases most likely to be real instead of chasing random alerts or waiting for the overnight batch report. When it is wrong the cost is contained and visible (a few minutes on a false positive, or a risky transaction that clears before someone catches it). When there is no system like this the cost is worse and hidden. Either the team drowns in alerts and misses the real fraud, or tightens the rules and blocks good customers. Here it judges Wikipedia edits as a public stand-in, but the shape is the same as fraud detection, transaction monitoring, and access-review queues.
