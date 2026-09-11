@@ -141,12 +141,21 @@ A key design decision I made early is that the model cannot flag an edit, or cle
 
 The alternative is one call: parse what the model says and route on its confidence. This is half the code, half the tokens on the edits that would otherwise need two calls, and latency that is easier to reason about. What stopped me is that a small local model produces confident labels with evidence that is not in the diff, and a one-call system would flag those on confidence alone. The grounding check sends a fabricated quote to `review`, never to `flagged`. The [`reason/reason_test.go`](reason/reason_test.go) case with the invented quote shows this (the model is retried once, then distrusted).
 
-The loop records enough to tell me when to remove it. Every row stores `steps`, so "how often the challenge runs" is a query against the table. Storing the triage label next to the final label would make "how often the challenge changes the outcome" a query as well.
+The loop records enough to tell me when to remove it. Every row stores `steps`, and the challenge adds `challenge:overturned` whenever it changes the label or the route the triage pass would have given, so how often the second call changes the outcome is one query against the table.
 
 Cost is also bounded one layer up, in the transform pipeline, before anything reaches the model. Priority edits (large byte changes, blank summaries, temporary accounts) are never sampled out. The remainder is sampled at a tunable rate, deterministically by `rev_id` and spread evenly in time. This sample is a cost control and it is the benign control group. It is the only view of how the model behaves on ordinary edits, and therefore the only read on false positives among them.
 
-I would drop the second call once a stronger model makes the challenge stop changing outcomes. Given labeled data, I would put a fine-tuned classifier on the bulk and keep the LLM for the unclear slice. That classifier is the shape Wikimedia arrived at with [ORES](https://www.mediawiki.org/wiki/ORES) and the revert-risk models on its successor, [Lift Wing](https://wikitech.wikimedia.org/wiki/Machine_Learning/LiftWing).
+I would drop the second call when that overturn rate approaches zero on a stronger model. I would move the bulk of the edits to a fine-tuned classifier once the sample has been labeled into an eval set, and keep the LLM for the unclear slice. That classifier is the shape Wikimedia arrived at with [ORES](https://www.mediawiki.org/wiki/ORES) and the revert-risk models on its successor, [Lift Wing](https://wikitech.wikimedia.org/wiki/Machine_Learning/LiftWing).
 
 ## Surprises and Production Notes
+
+Surprisingly, the Wikipedia recent-changes feed carries no diff content, so the transform pipeline has to fetch every diff itself from the compare API. Doing that politely meant following Wikimedia's [User-Agent](https://foundation.wikimedia.org/wiki/Policy:Wikimedia_Foundation_User-Agent_Policy) and [rate](https://www.mediawiki.org/wiki/API:Etiquette) rules.
+
+In production, the gaps in order of how much they would hurt:
+1. There is no eval set, so I can say the machinery is sound but not what its precision or recall is. The sampled benign stream is the raw material that set would be built from. It also closes the loop on the tradeoff above: the overturn rate says when the challenge has stopped changing outcomes, and only an eval set says whether it was right when it did.
+2. Ingest does not send `Last-Event-ID` when it reconnects, so a restart or a dropped connection loses events that [EventStreams](https://wikitech.wikimedia.org/wiki/Event_Platform/EventStreams) could have replayed (it keeps at least a week of history).
+3. Topics have one partition and the reasoner handles one edit at a time, so against the unfiltered firehose the backlog grows without bound. The fix is more partitions and reasoner replicas, and only after that does sink batching matter.
+4. Any 4xx from the model is retried as if it were a transport failure, which stalls the partition.
+5. Dedupe is an in-process cache that a restart wipes. Every topic is keyed on revision id, so both copies of an edit reach the same consumer and replicas only miss a duplicate across a rebalance. The sink upsert is the backstop either way.
 
 ## Why This Matters
