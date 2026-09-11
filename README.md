@@ -43,13 +43,33 @@ On CPU the model takes tens of seconds per edit, so the first verdicts appear a 
 
 ### Things to Look At
 
-**Loop** in [`reason/reason.go`](reason/reason.go) runs each edit through six steps:
-1. The gate records an edit whose diff could not be fetched as skipped instead of guessing.
-2. Triage shows the model the title, the editor type, the summary, the byte delta, and the diff, and asks for a label, a confidence, a one-sentence reason, and a verbatim quote from the diff.
-3. Parsing pulls the first JSON object that decodes out of whatever the model wrote (prose, code fences, thinking blocks), normalizes the label onto the fixed set, and reads the confidence as a number in 0..1. Anything unusable goes back to the model with the problem attached. The last attempt forces JSON mode.
-4. Grounding checks that the quoted evidence appears in the diff, exactly or most of it in one unbroken run, since a small model mangles the odd character. If not, the model is asked once more to quote exactly. If it still cannot, its confidence is capped and the edit goes to human review whatever the label.
-5. The challenge reopens a grounded verdict below the high-confidence threshold, or labelled unclear, in a fresh conversation that must argue the opposite case before deciding. That answer replaces the first unless it is unusable, in which case the first stands.
-6. The route is `flagged` for a damaging label at or above the high threshold, `ok` for a constructive edit at or above the low threshold, and `review` for everything else.
+**Loop** in [`reason/reason.go`](reason/reason.go) turns each edit into a routed verdict:
+
+```mermaid
+flowchart TD
+  edit[Enriched edit] --> gate{Diff fetched?}
+  gate -- no --> skipped([skipped])
+  gate -- yes --> triage[Triage prompt]
+  triage --> reply[Model reply]
+  reply --> parse{Usable JSON?}
+  parse -- "no, attempts left" --> repair[Send the error back]
+  repair --> reply
+  parse -- "no, out of attempts" --> unusable([review as unreviewed])
+  parse -- yes --> ground{Quote in diff?}
+  ground -- "no, first miss" --> requote[Ask for an exact quote]
+  requote --> reply
+  ground -- "no, again" --> cap[Cap confidence at low]
+  cap --> review([review])
+  ground -- yes --> close{Unclear or below high?}
+  close -- "yes, once" --> challenge[Challenge in a fresh conversation]
+  challenge --> reply
+  close -- no --> route{Route}
+  route -- "damaging, at or above high" --> flagged([flagged])
+  route -- "constructive, at or above low" --> ok([ok])
+  route -- otherwise --> review
+```
+
+The model sees the title, the editor type, the summary, the byte delta, and the diff, and answers with a label, a confidence, a one-sentence reason, and a verbatim quote from the diff. The parser pulls the first JSON object that decodes out of whatever the model wrote, and the last attempt forces JSON mode. A quote counts as found when most of it appears in the diff as one unbroken run, since a small model mangles the odd character. The challenge must argue the opposite case before deciding. Its answer replaces the first unless it is unusable, in which case the first stands.
 
 Labels are `constructive`, `vandalism`, `spam`, `unsourced_claim`, and `unclear`. `unreviewed` marks records the loop gave up on.
 
