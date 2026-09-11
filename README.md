@@ -1,8 +1,6 @@
 # redpanda-fde-build-exercise
 
-Judge live Wikipedia edits so a human sees the damaging ones first.
-
-Connect reads the Wikimedia recent-changes firehose, keeps human edits to English articles, and fetches the diff behind each one, since the feed itself only says who changed which page and by how many bytes. Reason has a local model judge each diff, makes it quote its evidence, argues the close calls a second time, and writes a verdict back to a topic. Connect sinks verdicts into Postgres, and Serve turns that table into a live view at http://localhost:8080.
+Judge live Wikipedia edits with an LLM to enable a human to triage the damaging ones first.
 
 ```mermaid
 flowchart LR
@@ -24,6 +22,14 @@ flowchart LR
   PG -- "rows + NOTIFY" --> SV["Serve"]
   SV -- "HTML + SSE" --> BR["Browser<br/>localhost:8080"]
 ```
+
+A Connect [`http_client`](https://docs.redpanda.com/connect/components/inputs/http_client/) ingests the Wikimedia recent-changes firehose and ingests human edits to English articles to the `wiki.edits.raw` topic.
+
+A Connect [`processor`](https://docs.redpanda.com/connect/components/processors/processors/) group then filters and tiers the raw changes and fetches the diff behind each one as a separate (rate-limited) external call. The filtered set of raw events are then stripped to include only the relevant fields, enriches them with the diff details and persists them to the `wiki.edits.enriched` topic. This step is necessary since the feed itself only says who changed which page and by how many bytes.
+
+Reason then has a local model judge each diff, makes it quote its evidence, argues the close calls a second time, and writes a verdict back to the `wiki.edits.verdicts` topic.
+
+A Connect [`sql_insert`](https://docs.redpanda.com/cloud-data-platform/develop/connect/components/outputs/sql_insert/) output sinks the verdicts into Postgres, and Serve turns that table into a live view at http://localhost:8080.
 
 ## Getting Started
 
