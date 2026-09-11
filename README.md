@@ -38,11 +38,6 @@ You need Docker with Compose and about 12 GB of memory available to containers (
 The first start pulls `gemma4:e4b` into the Ollama volume, which takes a few minutes. `reason` waits until it is there.
 
 ```sh
-# Optional if you use `colima` on macOS to run the Docker VM.
-colima start --cpu 8 --memory 12 --disk 60
-```
-
-```sh
 docker compose up --build --detach
 ```
 
@@ -51,7 +46,8 @@ open http://localhost:8080
 ```
 
 > [!TIP]
-> `make up` does all of that: it starts Docker Desktop or Colima if it is not running, brings the stack up detached, opens the page in your browser once every service is up, and follows the logs. `make down` stops the stack.
+> `make up` does the same detached, opens the page in your browser once every service is up, and follows the logs.
+> `make down` stops the stack.
 
 Then open:
 - http://localhost:8080 for the verdicts page, which updates as verdicts land
