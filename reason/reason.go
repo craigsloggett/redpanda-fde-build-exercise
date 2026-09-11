@@ -93,6 +93,13 @@ func (r *Reasoner) Reason(ctx context.Context, input Input) (Verdict, error) {
 		second.Tokens += verdict.Tokens
 
 		if second.Label != labelUnreviewed {
+			if second.Label != verdict.Label || r.route(second) != r.route(verdict) {
+				second.Steps = append(
+					second.Steps,
+					"challenge:overturned",
+				)
+			}
+
 			verdict = second
 		} else {
 			verdict.Steps = second.Steps

@@ -177,7 +177,7 @@ func TestReason(t *testing.T) {
 			wantRoute:      routeFlagged,
 			wantConfidence: 0.9,
 			wantCalls:      2,
-			wantSteps:      []string{"triage", "challenge"},
+			wantSteps:      []string{"triage", "challenge", "challenge:overturned"},
 			check: func(llm *scriptedLLM, _ Verdict) error {
 				challenge := llm.calls[1].msgs
 				if len(challenge) != 2 || !strings.Contains(lastMessage(challenge), `labelled this edit "unsourced_claim"`) {
@@ -197,7 +197,31 @@ func TestReason(t *testing.T) {
 			wantRoute:      routeOK,
 			wantConfidence: 0.7,
 			wantCalls:      2,
+			wantSteps:      []string{"triage", "challenge", "challenge:overturned"},
+		},
+		{
+			name: "challenge that agrees leaves no overturned step",
+			replies: []string{
+				`{"label": "vandalism", "confidence": 0.6, "reason": "x", "evidence": "haunted by aliens lol"}`,
+				`{"label": "vandalism", "confidence": 0.7, "reason": "x", "evidence": "haunted by aliens lol"}`,
+			},
+			wantLabel:      labelVandalism,
+			wantRoute:      routeReview,
+			wantConfidence: 0.7,
+			wantCalls:      2,
 			wantSteps:      []string{"triage", "challenge"},
+		},
+		{
+			name: "challenge that lifts the same label over the high threshold overturns the route",
+			replies: []string{
+				`{"label": "vandalism", "confidence": 0.6, "reason": "x", "evidence": "haunted by aliens lol"}`,
+				`{"label": "vandalism", "confidence": 0.9, "reason": "x", "evidence": "haunted by aliens lol"}`,
+			},
+			wantLabel:      labelVandalism,
+			wantRoute:      routeFlagged,
+			wantConfidence: 0.9,
+			wantCalls:      2,
+			wantSteps:      []string{"triage", "challenge", "challenge:overturned"},
 		},
 		{
 			name: "challenge that never parses leaves the first verdict in review",
