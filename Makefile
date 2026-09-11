@@ -16,7 +16,7 @@ else
 OPEN := xdg-open
 endif
 
-.PHONY: all build format lint test up down reset-sink clean clean-all
+.PHONY: all build format lint test start-docker up down reset-sink clean clean-all
 
 all: lint test build
 
@@ -81,7 +81,23 @@ test:
 
 # Docker Compose
 
-up:
+# Prefers the Colima profile the endpoint names, then any Colima instance, then Docker Desktop, since a stopped
+# runtime leaves no socket or context to sniff.
+start-docker:
+	@docker info >/dev/null 2>&1 && exit 0; \
+	[ "$$(uname -s)" = Darwin ] || { echo "Docker is not running. Start it and run make again." >&2; exit 1; }; \
+	endpoint="$${DOCKER_HOST:-$$(docker context inspect --format '{{.Endpoints.docker.Host}}')}"; \
+	case "$$endpoint" in \
+	  */colima/*) profile="$${endpoint%/docker.sock}"; profile="$${profile##*/}" ;; \
+	  *) profile="$$(colima list 2>/dev/null | awk 'NR > 1 { print $$1; exit }')" ;; \
+	esac; \
+	if [ -n "$$profile" ]; then colima start "$$profile" || exit 1; \
+	elif open -g -a Docker 2>/dev/null; then echo "Starting Docker Desktop"; \
+	else echo "Docker is not running. Install Docker Desktop or create a Colima VM (see README), then run make again." >&2; exit 1; fi; \
+	i=0; while [ $$i -lt 60 ]; do docker info >/dev/null 2>&1 && exit 0; sleep 2; i=$$((i + 1)); done; \
+	echo "Docker did not become ready within two minutes." >&2; exit 1
+
+up: start-docker
 	docker compose up --build --detach --wait
 	$(OPEN) $(PAGE_URL) || echo "Open $(PAGE_URL) in a browser"
 	docker compose logs --follow

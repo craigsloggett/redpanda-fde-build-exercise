@@ -50,7 +50,7 @@ open http://localhost:8080
 ```
 
 > [!TIP]
-> `make up` does the same detached, opens the page in your browser once every service is up, and follows the logs. `make down` stops the stack.
+> `make up` does all of that: it starts Docker Desktop or Colima if it is not running, brings the stack up detached, opens the page in your browser once every service is up, and follows the logs. `make down` stops the stack.
 
 Then open:
 - http://localhost:8080 for the verdicts page, which updates as verdicts land
