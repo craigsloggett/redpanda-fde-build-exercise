@@ -57,10 +57,11 @@ func run() error {
 			APIKey:  cfg.LLMAPIKey,
 			HTTP:    &http.Client{Timeout: cfg.LLMTimeout},
 		},
-		MaxAttempts:    cfg.MaxAttempts,
-		HighConfidence: cfg.HighConfidence,
-		LowConfidence:  cfg.LowConfidence,
-		Log:            log,
+		MaxAttempts:       cfg.MaxAttempts,
+		HighConfidence:    cfg.HighConfidence,
+		LowConfidence:     cfg.LowConfidence,
+		ChallengePermille: cfg.ChallengePermille,
+		Log:               log,
 	}
 	consumer := &Consumer{Client: client, TopicOut: cfg.TopicOut, Reasoner: reasoner, Model: cfg.LLMModel, Log: log}
 

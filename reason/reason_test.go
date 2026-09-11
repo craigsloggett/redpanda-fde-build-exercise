@@ -329,3 +329,56 @@ func TestReasonReturnsErrorWhenModelUnreachable(t *testing.T) {
 		t.Errorf("Reason() should produce no verdict on a transport failure, got %+v", verdict)
 	}
 }
+
+func TestReasonControlSlice(t *testing.T) {
+	confident := `{"label": "constructive", "confidence": 0.95, "reason": "x", "evidence": "haunted by aliens lol"}`
+	doubtful := `{"label": "constructive", "confidence": 0.6, "reason": "x", "evidence": "haunted by aliens lol"}`
+
+	tests := []struct {
+		name      string
+		permille  int
+		replies   []string
+		wantSteps string
+	}{
+		{name: "confident verdict in the slice is challenged and marked", permille: 1000, replies: []string{confident, confident}, wantSteps: "triage,challenge:control,challenge"},
+		{name: "confident verdict outside the slice is not challenged", permille: 0, replies: []string{confident}, wantSteps: "triage"},
+		{name: "doubtful verdict is challenged without the control mark", permille: 1000, replies: []string{doubtful, doubtful}, wantSteps: "triage,challenge"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			llm := &scriptedLLM{replies: test.replies}
+			reasoner := newTestReasoner(llm)
+			reasoner.ChallengePermille = test.permille
+
+			verdict, err := reasoner.Reason(t.Context(), testInput())
+			if err != nil {
+				t.Fatalf("Reason() unexpected error: %v", err)
+			}
+
+			if got := strings.Join(verdict.Steps, ","); got != test.wantSteps {
+				t.Errorf("Reason() steps = %s, want %s", got, test.wantSteps)
+			}
+
+			if len(llm.calls) != len(test.replies) {
+				t.Errorf("Reason() made %d model calls, want %d", len(llm.calls), len(test.replies))
+			}
+		})
+	}
+}
+
+func TestInControlSpreadsRevisions(t *testing.T) {
+	reasoner := &Reasoner{ChallengePermille: 100}
+
+	var picked int
+
+	for revID := int64(1); revID <= 10000; revID++ {
+		if reasoner.inControl(revID) {
+			picked++
+		}
+	}
+
+	if picked < 800 || picked > 1200 {
+		t.Errorf("inControl picked %d of 10000 revisions at 100 per mille, want about 1000", picked)
+	}
+}

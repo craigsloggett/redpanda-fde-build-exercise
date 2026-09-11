@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -51,11 +53,12 @@ type Verdict struct {
 }
 
 type Reasoner struct {
-	LLM            Chatter
-	MaxAttempts    int
-	HighConfidence float64
-	LowConfidence  float64
-	Log            *slog.Logger
+	LLM               Chatter
+	MaxAttempts       int
+	HighConfidence    float64
+	LowConfidence     float64
+	ChallengePermille int
+	Log               *slog.Logger
 }
 
 func (r *Reasoner) Reason(ctx context.Context, input Input) (Verdict, error) {
@@ -79,7 +82,17 @@ func (r *Reasoner) Reason(ctx context.Context, input Input) (Verdict, error) {
 		return verdict, nil
 	}
 
-	if verdict.Grounded && (verdict.Label == labelUnclear || verdict.Confidence < r.HighConfidence) {
+	doubt := verdict.Label == labelUnclear || verdict.Confidence < r.HighConfidence
+
+	control := !doubt && r.inControl(input.RevID)
+	if verdict.Grounded && (doubt || control) {
+		if control {
+			verdict.Steps = append(
+				verdict.Steps,
+				"challenge:control",
+			)
+		}
+
 		second, err := r.assess(ctx, input, challengeMessages(input, verdict), "challenge")
 		if err != nil {
 			return Verdict{}, err
@@ -269,4 +282,11 @@ func (r *Reasoner) route(verdict Verdict) Route {
 	default:
 		return routeReview
 	}
+}
+
+func (r *Reasoner) inControl(revID int64) bool {
+	digest := fnv.New64a()
+	digest.Write(strconv.AppendInt(nil, revID, 10))
+
+	return digest.Sum64()%1000 < uint64(r.ChallengePermille)
 }

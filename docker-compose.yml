@@ -149,6 +149,10 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gemma4:e4b}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      HIGH_CONFIDENCE: ${HIGH_CONFIDENCE:-0.8}
+      LOW_CONFIDENCE: ${LOW_CONFIDENCE:-0.5}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      CHALLENGE_PERMILLE: ${CHALLENGE_PERMILLE:-100}
     depends_on:
       redpanda-init:
         condition: service_completed_successfully

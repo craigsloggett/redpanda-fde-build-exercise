@@ -20,9 +20,10 @@ type Config struct {
 	LLMAPIKey  string
 	LLMTimeout time.Duration
 
-	MaxAttempts    int
-	HighConfidence float64
-	LowConfidence  float64
+	MaxAttempts       int
+	HighConfidence    float64
+	LowConfidence     float64
+	ChallengePermille int
 }
 
 var errConfig = errors.New("invalid config")
@@ -48,6 +49,10 @@ func loadConfig() (Config, error) {
 		return cfg, err
 	}
 
+	if cfg.ChallengePermille, err = envInt("CHALLENGE_PERMILLE", 100); err != nil {
+		return cfg, err
+	}
+
 	if cfg.HighConfidence, err = envFloat("HIGH_CONFIDENCE", 0.8); err != nil {
 		return cfg, err
 	}
@@ -58,6 +63,10 @@ func loadConfig() (Config, error) {
 
 	if cfg.MaxAttempts < 1 {
 		return cfg, fmt.Errorf("%w: MAX_ATTEMPTS must be at least 1, got %d", errConfig, cfg.MaxAttempts)
+	}
+
+	if cfg.ChallengePermille < 0 || cfg.ChallengePermille > 1000 {
+		return cfg, fmt.Errorf("%w: CHALLENGE_PERMILLE must be from 0 to 1000, got %d", errConfig, cfg.ChallengePermille)
 	}
 
 	if !(0 <= cfg.LowConfidence && cfg.LowConfidence < cfg.HighConfidence && cfg.HighConfidence <= 1) {
