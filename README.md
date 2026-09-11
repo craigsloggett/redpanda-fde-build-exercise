@@ -125,6 +125,28 @@ Reason commits an offset only after the verdict is on `wiki.edits.verdicts`. Whe
 
 ## Tradeoffs
 
+### Connect as the Sink vs App-Side Writes From the Reasoning Service
+
+The verdicts topic is the system of record. Postgres is a projection of it, and the sink can rebuild that projection for as long as the topic still holds the verdicts (a week at the default retention). Verdicts are produced to `wiki.edits.verdicts`, and a Connect [`sql_insert`](https://docs.redpanda.com/redpanda-connect/components/outputs/sql_insert) output in [`serve/sink.yaml`](serve/sink.yaml) upserts them into Postgres keyed on `rev_id`. The reasoning service does not open a database connection.
+
+The alternative is what most services do first: Reason writes the row itself. That is fewer moving parts, and the page sees a verdict as soon as it is written. The problem is that Reason would then commit twice, once to the topic and once to Postgres, with no transaction across the two. The first failed write leaves the topic and the table disagreeing, and neither is the record any more.
+
+With the topic as the record, a second consumer is a second Connect configuration, and `make reset-sink` rebuilds the table from the log. Replaying the topic surfaced one constraint on the sink. Postgres rejects a multi-row upsert that touches the same key twice, and Connect retries a failed batch indefinitely, so the sink writes one row per statement. That costs nothing here. The transform fetches diffs at five a second, so live traffic is at most five verdicts a second, and a replay is bounded by Postgres, which handles thousands of single-row upserts a second.
+
+I would move the write into Reason if it ever had to be transactional with other application state (a reviewer claiming an edit, or a decision the next request must see). A sink connector cannot give that guarantee.
+
+### One Classification Call vs the Multi-Step Loop
+
+A key design decision I made early is that the model cannot flag an edit, or clear one, on evidence that is not in the diff. A verdict with an invented quote still reaches the topic, with its confidence capped and its route set to review. The worst a fabricated quote can do is cost a reviewer a look. Reason triages the edit, repairs malformed output with JSON mode reserved for the last attempt, and checks that the quoted evidence appears in the diff. When the quote is found, a challenge pass runs only if the label is `unclear` or the confidence is below the high threshold.
+
+The alternative is one call: parse what the model says and route on its confidence. This is half the code, half the tokens on the edits that would otherwise need two calls, and latency that is easier to reason about. What stopped me is that a small local model produces confident labels with evidence that is not in the diff, and a one-call system would flag those on confidence alone. The grounding check sends a fabricated quote to `review`, never to `flagged`. The [`reason/reason_test.go`](reason/reason_test.go) case with the invented quote shows this (the model is retried once, then distrusted).
+
+The loop records enough to tell me when to remove it. Every row stores `steps`, so "how often the challenge runs" is a query against the table. Storing the triage label next to the final label would make "how often the challenge changes the outcome" a query as well.
+
+Cost is also bounded one layer up, in the transform pipeline, before anything reaches the model. Priority edits (large byte changes, blank summaries, temporary accounts) are never sampled out. The remainder is sampled at a tunable rate, deterministically by `rev_id` and spread evenly in time. This sample is a cost control and it is the benign control group. It is the only view of how the model behaves on ordinary edits, and therefore the only read on false positives among them.
+
+I would drop the second call once a stronger model makes the challenge stop changing outcomes. Given labeled data, I would put a fine-tuned classifier on the bulk and keep the LLM for the unclear slice. That classifier is the shape Wikimedia arrived at with [ORES](https://www.mediawiki.org/wiki/ORES) and the revert-risk models on its successor, [Lift Wing](https://wikitech.wikimedia.org/wiki/Machine_Learning/LiftWing).
+
 ## Surprises and Production Notes
 
 ## Why This Matters
